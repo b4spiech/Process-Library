@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BPR — Business Process Repository</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">BPR</span>
+      <span class="title">Business Process Repository</span>
+      <span class="subtitle">The Kendall Group · Business Operating System · Phase 1</span>
+    </div>
+    <div class="meta">
+      <span id="health-indicator" class="health">checking…</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="tree-pane">
+      <div class="pane-header">
+        <h2>Process Taxonomy</h2>
+        <button id="add-root-btn" class="btn-primary" title="Add L1 Domain">+ L1 Domain</button>
+      </div>
+      <div id="tree" class="tree"></div>
+    </section>
+
+    <section class="detail-pane" id="detail-pane">
+      <div class="empty-state" id="empty-state">
+        <p>Select a node to view or edit its governance metadata.</p>
+      </div>
+      <form id="detail-form" class="detail-form" style="display:none;">
+        <div class="detail-header">
+          <div>
+            <span class="level-chip" id="d-level"></span>
+            <span class="code-chip" id="d-code-chip"></span>
+          </div>
+          <div class="detail-actions">
+            <button type="button" id="add-child-btn" class="btn-secondary">+ Add child</button>
+            <button type="button" id="delete-btn" class="btn-danger">Delete</button>
+          </div>
+        </div>
+
+        <div class="grid">
+          <label>Code
+            <input type="text" id="f-code" required />
+          </label>
+          <label>Name
+            <input type="text" id="f-name" required />
+          </label>
+          <label class="span-2">Description
+            <textarea id="f-description" rows="2"></textarea>
+          </label>
+
+          <label>Owner
+            <input type="text" id="f-owner" placeholder="Named person responsible" />
+          </label>
+          <label>Status
+            <select id="f-status">
+              <option value="active">Active</option>
+              <option value="under_review">Under Review</option>
+              <option value="deprecated">Deprecated</option>
+            </select>
+          </label>
+
+          <label>Review Frequency
+            <select id="f-review-frequency">
+              <option value="">— none —</option>
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly</option>
+              <option value="annually">Annually</option>
+            </select>
+          </label>
+          <label>Last Review Date
+            <input type="date" id="f-last-review-date" />
+          </label>
+
+          <label>Next Review Date
+            <input type="date" id="f-next-review-date" disabled />
+          </label>
+          <label>Linked Procedure URL
+            <input type="url" id="f-linked-procedure-url" placeholder="https://…" />
+          </label>
+
+          <label>KPI Name
+            <input type="text" id="f-kpi-name" />
+          </label>
+          <label>KPI Target
+            <input type="text" id="f-kpi-target" />
+          </label>
+
+          <label>KPI Current
+            <input type="text" id="f-kpi-current" />
+          </label>
+          <label>Camunda Process Key
+            <input type="text" id="f-camunda-process-key" placeholder="(future BPMN integration)" />
+          </label>
+        </div>
+
+        <div class="form-footer">
+          <span class="muted" id="meta-info"></span>
+          <button type="submit" class="btn-primary">Save</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <!-- Add-child / add-root dialog -->
+  <dialog id="add-dialog">
+    <form method="dialog" id="add-form">
+      <h3 id="add-title">Add child</h3>
+      <div class="grid">
+        <label>Code
+          <input type="text" id="add-code" required />
+        </label>
+        <label>Name
+          <input type="text" id="add-name" required />
+        </label>
+        <label class="span-2">Description
+          <textarea id="add-description" rows="2"></textarea>
+        </label>
+        <label>Owner
+          <input type="text" id="add-owner" />
+        </label>
+        <label>Status
+          <select id="add-status">
+            <option value="active">Active</option>
+            <option value="under_review">Under Review</option>
+            <option value="deprecated">Deprecated</option>
+          </select>
+        </label>
+      </div>
+      <div class="form-footer">
+        <button type="button" value="cancel" id="add-cancel" class="btn-secondary">Cancel</button>
+        <button type="button" value="confirm" id="add-confirm" class="btn-primary">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
