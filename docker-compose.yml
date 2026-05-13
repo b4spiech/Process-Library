@@ -17,7 +17,7 @@ services:
 
   api:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
     depends_on:
       db:
@@ -25,8 +25,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://bpr:bpr@db:5432/bpr
     volumes:
-      - ./backend:/app
-      - ./frontend:/frontend
+      - .:/app
     ports:
       - "8000:8000"
     command: >
