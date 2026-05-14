@@ -612,6 +612,11 @@ function renderDocRow(doc, node) {
   const actions = document.createElement("div");
   actions.className = "doc-actions";
 
+  const view = document.createElement("button");
+  view.textContent = "View";
+  view.title = "Open in a new tab (no download)";
+  view.onclick = (e) => { e.stopPropagation(); viewDoc(doc.id); };
+
   const dl = document.createElement("button");
   dl.textContent = "Download";
   dl.title = "Download";
@@ -628,7 +633,7 @@ function renderDocRow(doc, node) {
   del.title = "Delete document";
   del.onclick = (e) => { e.stopPropagation(); deleteDoc(doc); };
 
-  actions.append(dl, edit, del);
+  actions.append(view, dl, edit, del);
   row.append(icon, info, actions);
   return row;
 }
@@ -664,6 +669,15 @@ async function downloadDoc(docId) {
     window.open(r.url, "_blank", "noopener");
   } catch (err) {
     toast(`Download failed: ${err.message}`, true);
+  }
+}
+
+async function viewDoc(docId) {
+  try {
+    const r = await api(`/documents/${docId}/view`);
+    window.open(r.url, "_blank", "noopener");
+  } catch (err) {
+    toast(`View failed: ${err.message}`, true);
   }
 }
 

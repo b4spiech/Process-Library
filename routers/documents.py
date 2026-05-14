@@ -226,3 +226,26 @@ def download_document(doc_id: int, db: Session = Depends(get_db)):
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     return DocumentDownloadUrl(url=url, expires_in=expires_in)
+
+
+@router.get("/documents/{doc_id}/view", response_model=DocumentDownloadUrl)
+def view_document(doc_id: int, db: Session = Depends(get_db)):
+    """Signed URL with Content-Disposition: inline, so the file renders in
+    the browser (PDF in a tab, image inline) instead of triggering a save
+    dialog. Reuses the same response shape as /download."""
+    doc = _require_document(db, doc_id)
+    if not r2_storage.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Document storage is not configured (R2 env vars missing).",
+        )
+    expires_in = 3600
+    try:
+        url = r2_storage.generate_view_url(
+            doc.filename,
+            expires_in=expires_in,
+            filename=doc.original_filename,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return DocumentDownloadUrl(url=url, expires_in=expires_in)

@@ -100,16 +100,17 @@ def delete_object(key: str) -> None:
         raise RuntimeError(f"R2 delete failed: {e}") from e
 
 
-def generate_download_url(
+def _generate_signed_url(
     key: str,
-    expires_in: int = 3600,
-    download_filename: Optional[str] = None,
+    expires_in: int,
+    filename: Optional[str],
+    disposition: str,
 ) -> str:
     params = {"Bucket": bucket_name(), "Key": key}
-    if download_filename:
-        params["ResponseContentDisposition"] = (
-            f'attachment; filename="{download_filename}"'
-        )
+    if filename:
+        params["ResponseContentDisposition"] = f'{disposition}; filename="{filename}"'
+    else:
+        params["ResponseContentDisposition"] = disposition
     try:
         return get_client().generate_presigned_url(
             "get_object",
@@ -118,6 +119,25 @@ def generate_download_url(
         )
     except (BotoCoreError, ClientError) as e:
         raise RuntimeError(f"R2 presign failed: {e}") from e
+
+
+def generate_download_url(
+    key: str,
+    expires_in: int = 3600,
+    download_filename: Optional[str] = None,
+) -> str:
+    """Signed URL that forces the browser to download (Content-Disposition: attachment)."""
+    return _generate_signed_url(key, expires_in, download_filename, "attachment")
+
+
+def generate_view_url(
+    key: str,
+    expires_in: int = 3600,
+    filename: Optional[str] = None,
+) -> str:
+    """Signed URL that lets the browser render inline (Content-Disposition: inline),
+    so PDFs, images, etc. open in a new tab instead of being downloaded."""
+    return _generate_signed_url(key, expires_in, filename, "inline")
 
 
 def is_configured() -> bool:
