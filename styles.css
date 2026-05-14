@@ -753,19 +753,49 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
    Document Library (full-page view) + Link Document modal
    ============================================================ */
 
+/* The [hidden] override comes FIRST so it doesn't lose specificity races
+   against later rules — the bug from the earlier drawer regression. */
+.library-view[hidden] { display: none; }
+
 .library-view {
-  flex: 1;
+  /* Slide-down overlay: positioned below the topbar, fills the rest of
+     the viewport, and sits on top of the regular tile layout. The tile
+     view stays mounted underneath so closing the library returns
+     instantly without re-rendering. */
+  position: fixed;
+  top: 56px;          /* matches .topbar { height: 56px } */
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 16px;
   display: flex;
   flex-direction: column;
-  padding: 16px;
   gap: 12px;
+  padding: 16px;
   overflow: hidden;
   background: var(--surface);
-  margin: 16px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 12px 40px rgba(15, 22, 36, 0.18);
+  z-index: 40;
+  animation: library-slide-down 0.18s ease-out;
 }
+@keyframes library-slide-down {
+  from { transform: translateY(-12px); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+
+.library-close-btn {
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1;
+}
+.library-close-btn:hover { background: var(--row-hover); color: var(--text); border-color: var(--accent); }
 .library-header {
   display: flex;
   align-items: center;

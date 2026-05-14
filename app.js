@@ -1504,20 +1504,27 @@ function toast(msg, isError = false) {
 // ---------- Document Library (full-page view) ----------
 
 function setViewMode(mode) {
+  // "library" shows the overlay; "tiles" hides it. The tile layout
+  // stays mounted underneath the overlay — we never hide it.
   state.viewMode = mode;
   const isLibrary = mode === "library";
-  document.querySelector("main.layout").hidden = isLibrary;
   $("library-view").hidden = !isLibrary;
-  $("view-toggle-btn").innerHTML = isLibrary
-    ? "← Process Library"
-    : "📚 Library";
-  if (isLibrary) {
-    loadLibrary();
-  }
+  $("view-toggle-btn").innerHTML = isLibrary ? "✕ Library" : "📚 Library";
+  if (isLibrary) loadLibrary();
 }
 
 $("view-toggle-btn").addEventListener("click", () => {
   setViewMode(state.viewMode === "library" ? "tiles" : "library");
+});
+
+$("library-close-btn").addEventListener("click", () => setViewMode("tiles"));
+
+// ESC closes the library overlay (in addition to the existing drawer ESC).
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && state.viewMode === "library") {
+    e.preventDefault();
+    setViewMode("tiles");
+  }
 });
 
 async function loadLibrary() {
