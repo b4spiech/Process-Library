@@ -1044,39 +1044,48 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
 }
 .sustainability-view .sustainability-title { display: flex; flex-direction: column; gap: 2px; }
 
-/* Pin the sustainability overlay to a known height so the inner scroll
-   container has a bounded parent. Without this the overlay grows with its
-   content and there's never anything to scroll inside. */
+/* The sustainability overlay scrolls itself. Override the inherited
+   `display: flex` + `overflow: hidden` from .library-view: this panel is
+   a plain block element with overflow-y: auto, and the header inside it
+   is `position: sticky` so it stays visible while the rest scrolls.
+   This avoids the flex-column + min-height:0 + overflow:auto chain that
+   wasn't behaving consistently across all browsers. */
 .sustainability-view {
   bottom: auto;
   top: 56px;
   margin: 16px;
   height: 90vh;
   max-height: calc(100vh - 88px);  /* 56px topbar + 32px top/bottom margins */
-}
-
-/* The actual scroll container. Everything below the fixed header lives
-   inside it — the theme manager and the theme sections both scroll
-   together. The `flex: 1; min-height: 0` combo is required for
-   overflow-y to take effect on a flex column child. */
-.sustainability-scroll {
-  flex: 1 1 0;
-  min-height: 0;
+  display: block;
   overflow-y: auto;
   overflow-x: hidden;
+  padding: 0;
+}
+
+.sustainability-view .library-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--surface);
+  padding: 14px 16px;
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
+}
+
+/* No longer a scroll container — just a padded stack for the theme
+   manager and theme sections. */
+.sustainability-scroll {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 4px 0 8px;
+  padding: 12px 16px 16px;
 }
 
-/* No longer a scroll container — just stacks its theme sections. Using
-   min-height (not height) so each section can grow to fit its criteria. */
 .sustainability-body {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  min-height: 0;
 }
 
 .theme-section {
