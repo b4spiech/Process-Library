@@ -92,6 +92,16 @@ async def upload_document(
     notes: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
+    # Drain the upload into memory before doing anything else. Starlette can
+    # close the underlying SpooledTemporaryFile once we leave the form-parsing
+    # scope, so any read deferred past DB calls or sync boto3 work fails with
+    # "I/O operation on closed file". Reading first decouples upload-handling
+    # from request-body lifetime.
+    contents = await file.read()
+    size = len(contents)
+    original_filename = file.filename or ""
+    content_type = file.content_type
+
     _require_node(db, node_id)
     _validate_required_fields(doc_type, owner, review_frequency)
 
@@ -101,21 +111,11 @@ async def upload_document(
             detail="Document storage is not configured (R2 env vars missing).",
         )
 
-    key = _r2_key_for(file.filename or "")
-    # Stream the upload into R2 directly. boto3 handles multipart for large files.
+    key = _r2_key_for(original_filename)
     try:
-        r2_storage.upload_fileobj(
-            file.file,
-            key,
-            content_type=file.content_type,
-        )
+        r2_storage.put_bytes(contents, key, content_type=content_type)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
-
-    # Compute file size by seek/tell (UploadFile is a SpooledTemporaryFile-backed).
-    file.file.seek(0, 2)
-    size = file.file.tell()
-    file.file.seek(0)
 
     # If client didn't pass next_review_date, derive it from cadence.
     computed_next = next_review_date or compute_next_review_date(
@@ -125,10 +125,10 @@ async def upload_document(
     doc = Document(
         node_id=node_id,
         filename=key,
-        original_filename=file.filename or key,
+        original_filename=original_filename or key,
         file_url=key,
         file_size=size,
-        mime_type=file.content_type,
+        mime_type=content_type,
         doc_type=doc_type,
         tags=tags,
         owner=owner,

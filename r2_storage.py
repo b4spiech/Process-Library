@@ -76,6 +76,23 @@ def upload_fileobj(
         raise RuntimeError(f"R2 upload failed: {e}") from e
 
 
+def put_bytes(
+    contents: bytes,
+    key: str,
+    content_type: Optional[str] = None,
+) -> None:
+    """Upload an in-memory byte string. Safer than upload_fileobj when the
+    source UploadFile may be closed by the time the upload runs.
+    """
+    kwargs = {"Bucket": bucket_name(), "Key": key, "Body": contents}
+    if content_type:
+        kwargs["ContentType"] = content_type
+    try:
+        get_client().put_object(**kwargs)
+    except (BotoCoreError, ClientError) as e:
+        raise RuntimeError(f"R2 upload failed: {e}") from e
+
+
 def delete_object(key: str) -> None:
     try:
         get_client().delete_object(Bucket=bucket_name(), Key=key)
