@@ -17,15 +17,33 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+# Enum value lists — defined once and referenced by both CREATE TYPE
+# (via DO block below) and the column type definitions (with create_type=False
+# so SQLAlchemy never tries to issue its own CREATE TYPE).
+REVIEW_FREQUENCY_VALUES = ("monthly", "quarterly", "annually")
+NODE_STATUS_VALUES = ("active", "under_review", "deprecated")
+
+
 def upgrade() -> None:
-    review_frequency = sa.Enum(
-        "monthly", "quarterly", "annually", name="review_frequency"
+    # PostgreSQL has no `CREATE TYPE IF NOT EXISTS`, so wrap each CREATE TYPE
+    # in a DO block that swallows the duplicate_object exception. This makes
+    # the migration idempotent across partial failures.
+    op.execute(
+        """
+        DO $$ BEGIN
+            CREATE TYPE review_frequency AS ENUM ('monthly', 'quarterly', 'annually');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        """
     )
-    node_status = sa.Enum(
-        "active", "under_review", "deprecated", name="node_status"
+    op.execute(
+        """
+        DO $$ BEGIN
+            CREATE TYPE node_status AS ENUM ('active', 'under_review', 'deprecated');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        """
     )
-    review_frequency.create(op.get_bind(), checkfirst=True)
-    node_status.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         "nodes",
@@ -43,14 +61,22 @@ def upgrade() -> None:
         sa.Column("owner", sa.String(length=255), nullable=True),
         sa.Column(
             "review_frequency",
-            sa.Enum(name="review_frequency", create_type=False),
+            sa.Enum(
+                *REVIEW_FREQUENCY_VALUES,
+                name="review_frequency",
+                create_type=False,
+            ),
             nullable=True,
         ),
         sa.Column("last_review_date", sa.Date(), nullable=True),
         sa.Column("next_review_date", sa.Date(), nullable=True),
         sa.Column(
             "status",
-            sa.Enum(name="node_status", create_type=False),
+            sa.Enum(
+                *NODE_STATUS_VALUES,
+                name="node_status",
+                create_type=False,
+            ),
             nullable=False,
             server_default="active",
         ),
@@ -73,16 +99,17 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("level >= 1 AND level <= 4", name="ck_nodes_level_range"),
         sa.UniqueConstraint("code", name="uq_nodes_code"),
+        if_not_exists=True,
     )
-    op.create_index("ix_nodes_parent_id", "nodes", ["parent_id"])
-    op.create_index("ix_nodes_level", "nodes", ["level"])
-    op.create_index("ix_nodes_id", "nodes", ["id"])
+    op.create_index("ix_nodes_parent_id", "nodes", ["parent_id"], if_not_exists=True)
+    op.create_index("ix_nodes_level", "nodes", ["level"], if_not_exists=True)
+    op.create_index("ix_nodes_id", "nodes", ["id"], if_not_exists=True)
 
 
 def downgrade() -> None:
-    op.drop_index("ix_nodes_id", table_name="nodes")
-    op.drop_index("ix_nodes_level", table_name="nodes")
-    op.drop_index("ix_nodes_parent_id", table_name="nodes")
-    op.drop_table("nodes")
-    sa.Enum(name="node_status").drop(op.get_bind(), checkfirst=True)
-    sa.Enum(name="review_frequency").drop(op.get_bind(), checkfirst=True)
+    op.drop_index("ix_nodes_id", table_name="nodes", if_exists=True)
+    op.drop_index("ix_nodes_level", table_name="nodes", if_exists=True)
+    op.drop_index("ix_nodes_parent_id", table_name="nodes", if_exists=True)
+    op.drop_table("nodes", if_exists=True)
+    op.execute("DROP TYPE IF EXISTS node_status")
+    op.execute("DROP TYPE IF EXISTS review_frequency")
