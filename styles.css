@@ -1043,18 +1043,40 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
   font-size: 16px;
 }
 .sustainability-view .sustainability-title { display: flex; flex-direction: column; gap: 2px; }
-.sustainability-body {
-  flex: 1;
-  /* min-height: 0 is required to make `overflow: auto` actually scroll
-     when this element is a flex item inside a column flexbox — without
-     it the item auto-sizes to its content height and the overflow never
-     triggers. */
+
+/* Pin the sustainability overlay to a known height so the inner scroll
+   container has a bounded parent. Without this the overlay grows with its
+   content and there's never anything to scroll inside. */
+.sustainability-view {
+  bottom: auto;
+  top: 56px;
+  margin: 16px;
+  height: 90vh;
+  max-height: calc(100vh - 88px);  /* 56px topbar + 32px top/bottom margins */
+}
+
+/* The actual scroll container. Everything below the fixed header lives
+   inside it — the theme manager and the theme sections both scroll
+   together. The `flex: 1; min-height: 0` combo is required for
+   overflow-y to take effect on a flex column child. */
+.sustainability-scroll {
+  flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 4px 0;
+  padding: 4px 0 8px;
+}
+
+/* No longer a scroll container — just stacks its theme sections. Using
+   min-height (not height) so each section can grow to fit its criteria. */
+.sustainability-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
 }
 
 .theme-section {

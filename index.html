@@ -32,15 +32,20 @@
       </div>
     </div>
 
-    <section class="theme-mgr" id="theme-mgr">
-      <div class="theme-mgr-header">
-        <span class="theme-mgr-title">Themes</span>
-        <button type="button" id="theme-add-btn" class="btn-primary">+ Add Theme</button>
-      </div>
-      <div id="theme-mgr-list" class="theme-mgr-list"></div>
-    </section>
+    <!-- Single scroll container for everything below the fixed header.
+         Both the theme manager and the theme sections live inside this
+         so a long list of themes / criteria scrolls together. -->
+    <div class="sustainability-scroll" id="sustainability-scroll">
+      <section class="theme-mgr" id="theme-mgr">
+        <div class="theme-mgr-header">
+          <span class="theme-mgr-title">Themes</span>
+          <button type="button" id="theme-add-btn" class="btn-primary">+ Add Theme</button>
+        </div>
+        <div id="theme-mgr-list" class="theme-mgr-list"></div>
+      </section>
 
-    <div id="sustainability-body" class="sustainability-body"></div>
+      <div id="sustainability-body" class="sustainability-body"></div>
+    </div>
   </main>
 
   <!-- Library view — slide-down overlay. Hidden by default. -->
