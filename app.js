@@ -18,10 +18,13 @@ const state = {
   docsByNode: new Map(),        // node_id -> LibraryDocument[]  (linked docs only)
   kpisByNode: new Map(),        // node_id -> Kpi[]
   entriesByKpi: new Map(),      // kpi_id  -> KpiEntry[]
+  topicsByNode: new Map(),      // node_id -> SustainabilityTopic[]
 
   viewMode: "tiles",            // "tiles" | "library"
   libraryDocs: [],              // last fetched library result set
   libraryFilter: { doc_type: "", search: "", tags: [] },
+
+  allTopics: null,              // full topic catalog (lazy-loaded once)
 };
 
 const LEVEL_NAMES = {
@@ -292,6 +295,7 @@ function renderRootMode(container) {
     grid.appendChild(renderTile(n, { variant: "grid" }));
     ensureDocsLoaded(n.id);
     ensureKpisLoaded(n.id);
+    ensureTopicsLoaded(n.id);
   });
   container.appendChild(grid);
 }
@@ -313,6 +317,7 @@ function renderBranchMode(container) {
   view.appendChild(headerRow);
   ensureDocsLoaded(node.id);
   ensureKpisLoaded(node.id);
+  ensureTopicsLoaded(node.id);
 
   const children = node.children || [];
   if (children.length === 0) {
@@ -364,11 +369,12 @@ function renderTile(node, { variant }) {
   const actions = document.createElement("div");
   actions.className = "tile-actions";
 
-  // "+ Doc" uploads a new file straight to the library *and* links it to
-  // this node in one go.
+  // "+ Doc" opens a tabbed modal: tab 1 uploads a brand-new file (and
+  // auto-links it to this node), tab 2 searches the library and lets the
+  // user link an existing document. (The separate Link button is gone.)
   const uploadBtn = document.createElement("button");
   uploadBtn.className = "tile-btn";
-  uploadBtn.title = "Upload a new document and link it to this node";
+  uploadBtn.title = "Upload a new document or link one from the library";
   uploadBtn.innerHTML = `<span class="icon">+</span> Doc`;
   uploadBtn.onclick = (e) => {
     e.stopPropagation();
@@ -376,17 +382,16 @@ function renderTile(node, { variant }) {
   };
   actions.appendChild(uploadBtn);
 
-  // "Link Doc" attaches an existing library document to this node without
-  // re-uploading the file.
-  const linkBtn = document.createElement("button");
-  linkBtn.className = "tile-btn link";
-  linkBtn.title = "Link an existing library document to this node";
-  linkBtn.innerHTML = `<span class="icon">🔗</span> Link`;
-  linkBtn.onclick = (e) => {
+  // "+ Topic" opens the sustainability-topic link modal for this node.
+  const topicBtn = document.createElement("button");
+  topicBtn.className = "tile-btn";
+  topicBtn.title = "Link an EcoVadis sustainability topic to this node";
+  topicBtn.innerHTML = `<span class="icon">🌱</span> Topic`;
+  topicBtn.onclick = (e) => {
     e.stopPropagation();
-    openLinkDialog(node);
+    openTopicDialog(node);
   };
-  actions.appendChild(linkBtn);
+  actions.appendChild(topicBtn);
 
   if (variant !== "header") {
     const expandBtn = document.createElement("button");
@@ -459,11 +464,15 @@ function renderTile(node, { variant }) {
   const kpiSummary = renderKpiSummary(node);
   if (kpiSummary) wrap.appendChild(kpiSummary);
 
-  // Clicking the tile body (but not buttons, badges, or KPI indicators)
-  // drills into the branch — except for the header tile, already focused.
+  // Sustainability topic pills (theme-colored). Hidden when none linked.
+  const topicPills = renderTopicPills(node);
+  if (topicPills) wrap.appendChild(topicPills);
+
+  // Clicking the tile body (but not buttons, badges, KPI indicators, or
+  // topic pills) drills into the branch — except for the header tile.
   if (variant !== "header") {
     wrap.onclick = (e) => {
-      if (e.target.closest("button, .doc-badge, .kpi-indicator")) return;
+      if (e.target.closest("button, .doc-badge, .kpi-indicator, .topic-pill")) return;
       navigate(node.id);
     };
   }
@@ -781,10 +790,49 @@ function openDocDialog(node, doc, prefillType = null) {
   $("doc-notes").value = doc ? (doc.notes || "") : "";
   $("doc-description").value = doc ? (doc.description || "") : "";
 
+  // Tab visibility: only show the "Link from Library" tab when a brand-new
+  // doc is being added to a specific node. Edit mode and library uploads
+  // get just the Upload tab.
+  const showLinkTab = !doc && !!node;
+  setDocDialogTabs(showLinkTab);
+  // Reset to the Upload tab whenever the dialog opens.
+  switchDocDialogTab("upload");
+  // Pre-seed the link-tab context so refreshes work if the user switches tabs.
+  linkDialogCtx = { node: node || null };
+
   renderTagChips($("doc-tags").value);
   updateDocFieldRequirements();
   $("doc-dialog").showModal();
 }
+
+function setDocDialogTabs(showLinkTab) {
+  const tabsBar = $("doc-modal-tabs");
+  tabsBar.hidden = !showLinkTab;
+  const linkTabBtn = tabsBar.querySelector('[data-doc-tab="link"]');
+  if (linkTabBtn) linkTabBtn.hidden = !showLinkTab;
+  // Always hide the link panel until the user clicks the tab; the link
+  // tab is only reachable when showLinkTab is true.
+  document.querySelector('[data-doc-panel="link"]').hidden = true;
+}
+
+function switchDocDialogTab(target) {
+  document.querySelectorAll("#doc-dialog .modal-tab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.docTab === target);
+  });
+  document.querySelectorAll("#doc-dialog .modal-tab-panel").forEach((p) => {
+    p.hidden = p.dataset.docPanel !== target;
+  });
+  if (target === "link") {
+    // Reset filters each time the user switches in for a clean slate.
+    $("link-search").value = "";
+    $("link-type-filter").value = "";
+    refreshLinkDialogBody();
+  }
+}
+
+document.querySelectorAll("#doc-dialog .modal-tab").forEach((btn) => {
+  btn.addEventListener("click", () => switchDocDialogTab(btn.dataset.docTab));
+});
 
 function renderTagChips(currentTagsCsv) {
   const container = $("doc-tag-chips");
@@ -1508,6 +1556,11 @@ function setViewMode(mode) {
   // stays mounted underneath the overlay — we never hide it.
   state.viewMode = mode;
   const isLibrary = mode === "library";
+  // Mutual exclusion with the sustainability overlay.
+  if (isLibrary && document.getElementById("sustainability-view") &&
+      !document.getElementById("sustainability-view").hidden) {
+    setSustainabilityOpen(false);
+  }
   $("library-view").hidden = !isLibrary;
   $("view-toggle-btn").innerHTML = isLibrary ? "✕ Library" : "📚 Library";
   if (isLibrary) loadLibrary();
@@ -1648,18 +1701,9 @@ $("library-upload-btn").addEventListener("click", () => openDocDialog(null, null
   });
 })();
 
-// ---------- Link Doc modal ----------
+// ---------- Link from Library (embedded as the second tab of #doc-dialog) ----------
 
 let linkDialogCtx = { node: null };
-
-async function openLinkDialog(node) {
-  linkDialogCtx = { node };
-  $("link-dialog-title").textContent = `Link Document to ${node.code} — ${node.name}`;
-  $("link-search").value = "";
-  $("link-type-filter").value = "";
-  $("link-dialog").showModal();
-  await refreshLinkDialogBody();
-}
 
 async function refreshLinkDialogBody() {
   const { node } = linkDialogCtx;
@@ -1759,12 +1803,326 @@ function renderLinkRow(doc, isLinked) {
   return row;
 }
 
-$("link-dialog-close").addEventListener("click", () => $("link-dialog").close());
+$("link-dialog-close").addEventListener("click", () => $("doc-dialog").close());
 $("link-search").addEventListener("input", () => {
   clearTimeout(refreshLinkDialogBody._t);
   refreshLinkDialogBody._t = setTimeout(refreshLinkDialogBody, 200);
 });
 $("link-type-filter").addEventListener("change", () => refreshLinkDialogBody());
+
+
+// ---------- Sustainability: overlay, topic pills, topic-link modal ----------
+
+const SUSTAINABILITY_THEMES = [
+  { key: "environment",             label: "Environment" },
+  { key: "labor_human_rights",      label: "Labor & Human Rights" },
+  { key: "ethics",                  label: "Ethics" },
+  { key: "sustainable_procurement", label: "Sustainable Procurement" },
+];
+
+// Short labels used inside the tile pills so the names don't overflow.
+const TOPIC_SHORT_LABEL = {
+  "Energy & GHG Emissions": "Energy/GHG",
+  "Water": "Water",
+  "Biodiversity": "Biodiversity",
+  "Pollution & Waste": "Pollution",
+  "Hazardous Materials": "Hazardous",
+  "Product Use Impact": "Use Impact",
+  "Product End-of-Life": "End-of-Life",
+  "Health & Safety": "H&S",
+  "Working Conditions": "Working Cond.",
+  "Social Dialogue": "Social Dialogue",
+  "Diversity & Inclusion": "D&I",
+  "Training & Development": "Training",
+  "Human Rights": "Human Rights",
+  "Anti-Corruption & Bribery": "Anti-Corruption",
+  "Anti-Competitive Practices": "Anti-Competitive",
+  "Responsible Information Management": "Info Mgmt",
+  "Whistleblower Protection": "Whistleblower",
+  "Supplier Environmental Practices": "Sup. Env.",
+  "Supplier Social Practices": "Sup. Social",
+  "Supplier Code of Conduct": "Sup. CoC",
+  "Supplier Assessment & Monitoring": "Sup. Audit",
+};
+
+async function ensureAllTopicsLoaded() {
+  if (state.allTopics) return state.allTopics;
+  try {
+    state.allTopics = await api("/sustainability/topics");
+  } catch (err) {
+    toast(`Failed to load topics: ${err.message}`, true);
+    state.allTopics = [];
+  }
+  return state.allTopics;
+}
+
+async function ensureTopicsLoaded(nodeId) {
+  if (state.topicsByNode.has(nodeId)) return;
+  try {
+    const topics = await api(`/nodes/${nodeId}/sustainability-topics`);
+    state.topicsByNode.set(nodeId, topics);
+    rerenderTileTopicPills(nodeId);
+  } catch (err) {
+    toast(`Failed to load topics: ${err.message}`, true);
+  }
+}
+
+function rerenderTileTopicPills(nodeId) {
+  const tile = document.querySelector(`.tile[data-id="${nodeId}"]`);
+  if (!tile) return;
+  const old = tile.querySelector(".tile-topic-pills");
+  if (old) old.remove();
+  const node = state.byId.get(nodeId);
+  if (!node) return;
+  const fresh = renderTopicPills(node);
+  if (fresh) tile.appendChild(fresh);
+}
+
+function renderTopicPills(node) {
+  const topics = state.topicsByNode.get(node.id);
+  if (!topics || topics.length === 0) return null;
+  const wrap = document.createElement("div");
+  wrap.className = "tile-topic-pills";
+  topics.forEach((t) => {
+    const pill = document.createElement("span");
+    pill.className = `topic-pill theme-${t.theme}`;
+    pill.textContent = TOPIC_SHORT_LABEL[t.name] || t.name;
+    pill.title = `${t.name} — click "🌱 Topic" on the tile to manage`;
+    wrap.appendChild(pill);
+  });
+  return wrap;
+}
+
+// ---- Sustainability overlay (full-page panel) ----
+
+function setSustainabilityOpen(open) {
+  $("sustainability-view").hidden = !open;
+  $("sustainability-toggle-btn").innerHTML = open ? "✕ Sustainability" : "🌱 Sustainability";
+  if (open) {
+    // Make sure the docs library overlay isn't also open.
+    if (state.viewMode === "library") setViewMode("tiles");
+    renderSustainabilityPanel();
+  }
+}
+
+$("sustainability-toggle-btn").addEventListener("click", () => {
+  setSustainabilityOpen($("sustainability-view").hidden);
+});
+$("sustainability-close-btn").addEventListener("click", () => setSustainabilityOpen(false));
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("sustainability-view").hidden) {
+    e.preventDefault();
+    setSustainabilityOpen(false);
+  }
+});
+
+async function renderSustainabilityPanel() {
+  const body = $("sustainability-body");
+  body.innerHTML = '<div class="drawer-empty">Loading…</div>';
+  const topics = await ensureAllTopicsLoaded();
+  // Force a refresh each open so counts stay current.
+  state.allTopics = null;
+  const fresh = await ensureAllTopicsLoaded();
+  body.innerHTML = "";
+
+  SUSTAINABILITY_THEMES.forEach(({ key, label }) => {
+    const inTheme = (fresh || []).filter((t) => t.theme === key);
+    const section = document.createElement("section");
+    section.className = `theme-section theme-${key}`;
+
+    const header = document.createElement("div");
+    header.className = "theme-section-header";
+    const chev = document.createElement("span");
+    chev.className = "theme-chevron";
+    chev.textContent = "▾";
+    const title = document.createElement("span");
+    title.textContent = label;
+    const count = document.createElement("span");
+    count.className = "theme-count";
+    count.textContent = `${inTheme.length} criteria`;
+    header.append(chev, title, count);
+    header.onclick = () => section.classList.toggle("collapsed");
+
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "theme-section-body";
+    inTheme.forEach((t) => bodyEl.appendChild(renderTopicCard(t)));
+
+    section.append(header, bodyEl);
+    body.appendChild(section);
+  });
+}
+
+function renderTopicCard(topic) {
+  const card = document.createElement("div");
+  card.className = "topic-card";
+
+  const top = document.createElement("div");
+  top.className = "topic-card-top";
+  const name = document.createElement("span");
+  name.className = "topic-card-name";
+  name.textContent = topic.name;
+  top.appendChild(name);
+
+  const statusChip = document.createElement("span");
+  statusChip.className = `kpi-status-chip status-chip-${topic.status} ${topic.status}`;
+  statusChip.textContent = (topic.status || "active").replace("_", " ");
+  top.appendChild(statusChip);
+
+  card.appendChild(top);
+
+  if (topic.description) {
+    const d = document.createElement("div");
+    d.className = "topic-card-desc";
+    d.textContent = topic.description;
+    card.appendChild(d);
+  }
+  if (topic.why_it_matters) {
+    const w = document.createElement("div");
+    w.className = "topic-card-why";
+    w.innerHTML = `<span class="topic-card-why-label">Why it matters</span>${escapeHtml(topic.why_it_matters)}`;
+    card.appendChild(w);
+  }
+
+  const meta = document.createElement("div");
+  meta.className = "topic-card-meta";
+
+  // Owner — inline-editable via prompt for now.
+  const ownerSpan = document.createElement("span");
+  ownerSpan.innerHTML = topic.owner
+    ? `Owner: <strong>${escapeHtml(topic.owner)}</strong>`
+    : `<em>No owner</em>`;
+  const setOwnerBtn = document.createElement("button");
+  setOwnerBtn.className = "tile-btn";
+  setOwnerBtn.style.padding = "2px 6px";
+  setOwnerBtn.textContent = topic.owner ? "Change" : "Set owner";
+  setOwnerBtn.onclick = async () => {
+    const v = prompt("Owner:", topic.owner || "");
+    if (v === null) return;
+    await updateTopic(topic.id, { owner: v });
+  };
+  meta.append(ownerSpan, setOwnerBtn);
+
+  // Linked-nodes count
+  const linkedCount = document.createElement("span");
+  linkedCount.innerHTML = `Linked to <strong>${topic.linked_nodes_count || 0}</strong> nodes`;
+  meta.appendChild(linkedCount);
+
+  // Activation toggle
+  const toggleLabel = document.createElement("label");
+  toggleLabel.className = "activated-toggle";
+  toggleLabel.innerHTML = `<input type="checkbox" ${topic.is_activated ? "checked" : ""}/> Activated`;
+  toggleLabel.querySelector("input").onchange = async (e) => {
+    await updateTopic(topic.id, { is_activated: e.target.checked });
+  };
+  meta.appendChild(toggleLabel);
+
+  card.appendChild(meta);
+  return card;
+}
+
+async function updateTopic(topicId, fields) {
+  try {
+    await api(`/sustainability/topics/${topicId}`, {
+      method: "PUT",
+      body: JSON.stringify(fields),
+    });
+    // Invalidate caches and re-render
+    state.allTopics = null;
+    state.topicsByNode.clear();
+    renderSustainabilityPanel();
+    renderRightPane();
+    toast("Saved");
+  } catch (err) {
+    toast(`Save failed: ${err.message}`, true);
+  }
+}
+
+// ---- Per-tile Topic Link modal (4 theme tabs) ----
+
+let topicDialogCtx = { node: null, theme: "environment" };
+
+async function openTopicDialog(node) {
+  topicDialogCtx = { node, theme: "environment" };
+  $("topic-dialog-title").textContent = `Link Sustainability Topic to ${node.code} — ${node.name}`;
+  // Reset tab UI to Environment
+  document.querySelectorAll("#topic-dialog .modal-tab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.theme === "environment");
+  });
+  await ensureAllTopicsLoaded();
+  await ensureTopicsLoaded(node.id);
+  renderTopicDialogBody();
+  $("topic-dialog").showModal();
+}
+
+function renderTopicDialogBody() {
+  const { node, theme } = topicDialogCtx;
+  const body = $("topic-dialog-body");
+  body.innerHTML = "";
+  const topics = (state.allTopics || []).filter((t) => t.theme === theme);
+  const linked = new Set((state.topicsByNode.get(node.id) || []).map((t) => t.id));
+
+  if (topics.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "drawer-empty";
+    empty.textContent = "No topics in this theme.";
+    body.appendChild(empty);
+    return;
+  }
+
+  topics.forEach((t) => {
+    const row = document.createElement("div");
+    row.className = "topic-row" + (linked.has(t.id) ? " is-linked" : "");
+
+    const info = document.createElement("div");
+    info.className = "topic-info";
+    const name = document.createElement("div");
+    name.className = "topic-name";
+    name.textContent = t.name;
+    const sub = document.createElement("div");
+    sub.className = "topic-sub";
+    sub.textContent = t.description || "";
+    info.append(name, sub);
+
+    const isLinked = linked.has(t.id);
+    const btn = document.createElement("button");
+    btn.className = "topic-action " + (isLinked ? "is-unlink" : "is-link");
+    btn.textContent = isLinked ? "Unlink" : "Link";
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      try {
+        if (isLinked) {
+          await api(`/nodes/${node.id}/sustainability-topics/${t.id}`, { method: "DELETE" });
+        } else {
+          await api(`/nodes/${node.id}/sustainability-topics/${t.id}`, { method: "POST" });
+        }
+        state.topicsByNode.delete(node.id);
+        state.allTopics = null;
+        await ensureTopicsLoaded(node.id);
+        await ensureAllTopicsLoaded();
+        renderTopicDialogBody();
+        renderRightPane();
+      } catch (err) {
+        toast(`${isLinked ? "Unlink" : "Link"} failed: ${err.message}`, true);
+      }
+    };
+
+    row.append(info, btn);
+    body.appendChild(row);
+  });
+}
+
+document.querySelectorAll("#topic-dialog .modal-tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    topicDialogCtx.theme = btn.dataset.theme;
+    document.querySelectorAll("#topic-dialog .modal-tab").forEach((b) => {
+      b.classList.toggle("active", b === btn);
+    });
+    renderTopicDialogBody();
+  });
+});
+
+$("topic-dialog-close").addEventListener("click", () => $("topic-dialog").close());
 
 
 // ---------- Boot ----------

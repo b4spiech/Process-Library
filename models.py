@@ -7,6 +7,7 @@ from sqlalchemy import (
     Text,
     Date,
     Enum,
+    Boolean,
     Float,
     ForeignKey,
     CheckConstraint,
@@ -56,6 +57,19 @@ class KpiDirection(str, enum.Enum):
     lower_is_better = "lower_is_better"
 
 
+class SustainabilityTheme(str, enum.Enum):
+    environment = "environment"
+    labor_human_rights = "labor_human_rights"
+    ethics = "ethics"
+    sustainable_procurement = "sustainable_procurement"
+
+
+class SustainabilityStatus(str, enum.Enum):
+    active = "active"
+    under_review = "under_review"
+    not_applicable = "not_applicable"
+
+
 class Node(Base):
     __tablename__ = "nodes"
 
@@ -95,6 +109,12 @@ class Node(Base):
     parent = relationship("Node", remote_side=[id], backref="children")
     document_links = relationship(
         "NodeDocument",
+        back_populates="node",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    sustainability_links = relationship(
+        "NodeSustainabilityTopic",
         back_populates="node",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -265,3 +285,86 @@ class KpiEntry(Base):
     )
 
     kpi = relationship("Kpi", back_populates="entries")
+
+
+class SustainabilityTopic(Base):
+    """A single EcoVadis criterion (e.g. "Energy & GHG Emissions").
+
+    Seed data is loaded by migration 0005. The PUT API only mutates
+    `owner`, `status`, `is_activated`, and `notes` — the rest is
+    reference data.
+    """
+
+    __tablename__ = "sustainability_topics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    theme = Column(
+        Enum(SustainabilityTheme, name="sustainability_theme"), nullable=False
+    )
+    name = Column(String(255), nullable=False, unique=True)
+    description = Column(Text, nullable=True)
+    ecovadis_criterion = Column(String(255), nullable=True)
+    why_it_matters = Column(Text, nullable=True)
+    evidence_examples = Column(Text, nullable=True)
+    weight = Column(Float, nullable=False, default=1.0, server_default="1.0")
+    is_activated = Column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    owner = Column(String(255), nullable=True)
+    status = Column(
+        Enum(SustainabilityStatus, name="sustainability_status"),
+        nullable=False,
+        default=SustainabilityStatus.active,
+        server_default=SustainabilityStatus.active.value,
+    )
+    notes = Column(Text, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    node_links = relationship(
+        "NodeSustainabilityTopic",
+        back_populates="topic",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class NodeSustainabilityTopic(Base):
+    """Many-to-many link between a Node and a SustainabilityTopic."""
+
+    __tablename__ = "node_sustainability_topics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    node_id = Column(
+        Integer,
+        ForeignKey("nodes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    topic_id = Column(
+        Integer,
+        ForeignKey("sustainability_topics.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    linked_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    linked_by = Column(String(255), nullable=True)
+    notes = Column(Text, nullable=True)
+
+    topic = relationship("SustainabilityTopic", back_populates="node_links")
+    node = relationship("Node", back_populates="sustainability_links")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "node_id", "topic_id", name="uq_node_sustainability_topics_node_topic"
+        ),
+    )

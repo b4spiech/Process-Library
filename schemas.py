@@ -7,6 +7,8 @@ from models import (
     DocType,
     ReportingFrequency,
     KpiDirection,
+    SustainabilityTheme,
+    SustainabilityStatus,
 )
 
 
@@ -203,3 +205,38 @@ class KpiRead(KpiBase):
     # Populated by the list endpoint so tile summaries can compute status
     # without an extra round trip per KPI. May be None when no entries exist.
     latest_entry: Optional[KpiEntryRead] = None
+
+
+# ---------- Sustainability topics ----------
+
+
+class SustainabilityTopicBase(BaseModel):
+    theme: SustainabilityTheme
+    name: str = Field(..., max_length=255)
+    description: Optional[str] = None
+    ecovadis_criterion: Optional[str] = None
+    why_it_matters: Optional[str] = None
+    evidence_examples: Optional[str] = None
+    weight: float = 1.0
+    is_activated: bool = True
+    owner: Optional[str] = None
+    status: SustainabilityStatus = SustainabilityStatus.active
+    notes: Optional[str] = None
+
+
+class SustainabilityTopicUpdate(BaseModel):
+    # Only these four fields are user-mutable per spec.
+    owner: Optional[str] = None
+    status: Optional[SustainabilityStatus] = None
+    is_activated: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class SustainabilityTopicRead(SustainabilityTopicBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    # Computed by list/get endpoints so the UI can show per-topic node counts.
+    linked_nodes_count: int = 0
