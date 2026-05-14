@@ -70,10 +70,21 @@ class NodeTree(NodeRead):
 NodeTree.model_rebuild()
 
 
-# ---------- Documents ----------
+# ---------- Library documents & node links ----------
 
 
-class DocumentBase(BaseModel):
+class NodeRef(BaseModel):
+    """Minimal node reference used inside LibraryDocumentReadWithNodes."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+    level: int
+
+
+class LibraryDocumentBase(BaseModel):
     doc_type: DocType
     tags: Optional[str] = None
     owner: Optional[str] = None
@@ -82,9 +93,10 @@ class DocumentBase(BaseModel):
     next_review_date: Optional[date] = None
     version: Optional[str] = None
     notes: Optional[str] = None
+    description: Optional[str] = None
 
 
-class DocumentUpdate(BaseModel):
+class LibraryDocumentUpdate(BaseModel):
     doc_type: Optional[DocType] = None
     tags: Optional[str] = None
     owner: Optional[str] = None
@@ -93,13 +105,13 @@ class DocumentUpdate(BaseModel):
     next_review_date: Optional[date] = None
     version: Optional[str] = None
     notes: Optional[str] = None
+    description: Optional[str] = None
 
 
-class DocumentRead(DocumentBase):
+class LibraryDocumentRead(LibraryDocumentBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    node_id: int
     filename: str
     original_filename: str
     file_url: Optional[str] = None
@@ -107,6 +119,12 @@ class DocumentRead(DocumentBase):
     mime_type: Optional[str] = None
     uploaded_at: datetime
     updated_at: datetime
+    # Populated by list/get endpoints so the UI can render counts cheaply.
+    linked_nodes_count: int = 0
+
+
+class LibraryDocumentReadWithNodes(LibraryDocumentRead):
+    linked_nodes: List[NodeRef] = []
 
 
 class DocumentDownloadUrl(BaseModel):

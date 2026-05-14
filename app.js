@@ -15,9 +15,13 @@ const state = {
   currentNodeId: null,
   treeSelectedId: null,
   treeCollapsed: new Set(),     // collapsed nodes in left tree
-  docsByNode: new Map(),        // node_id -> Document[]  (also serves as doc-count cache)
-  kpisByNode: new Map(),        // node_id -> Kpi[]       (each Kpi includes latest_entry)
-  entriesByKpi: new Map(),      // kpi_id  -> KpiEntry[]  (for the Enter Data history table)
+  docsByNode: new Map(),        // node_id -> LibraryDocument[]  (linked docs only)
+  kpisByNode: new Map(),        // node_id -> Kpi[]
+  entriesByKpi: new Map(),      // kpi_id  -> KpiEntry[]
+
+  viewMode: "tiles",            // "tiles" | "library"
+  libraryDocs: [],              // last fetched library result set
+  libraryFilter: { doc_type: "", search: "", tags: [] },
 };
 
 const LEVEL_NAMES = {
@@ -222,6 +226,7 @@ function selectTreeNode(id) {
 // ---------- Right pane: breadcrumb + mode-based tile rendering ----------
 
 function renderRightPane() {
+  if (state.viewMode === "library") return;  // tile pane is hidden
   renderBreadcrumb();
   renderTiles();
   updateSummary();
@@ -359,19 +364,29 @@ function renderTile(node, { variant }) {
   const actions = document.createElement("div");
   actions.className = "tile-actions";
 
-  // Compact "+ Doc" button gives users an upload affordance even when the
-  // tile currently shows no badges (otherwise uploads would only be reachable
-  // by clicking an existing per-type badge, which doesn't exist for the first
-  // document of any node).
+  // "+ Doc" uploads a new file straight to the library *and* links it to
+  // this node in one go.
   const uploadBtn = document.createElement("button");
   uploadBtn.className = "tile-btn";
-  uploadBtn.title = "Upload document";
+  uploadBtn.title = "Upload a new document and link it to this node";
   uploadBtn.innerHTML = `<span class="icon">+</span> Doc`;
   uploadBtn.onclick = (e) => {
     e.stopPropagation();
     openDocDialog(node, null);
   };
   actions.appendChild(uploadBtn);
+
+  // "Link Doc" attaches an existing library document to this node without
+  // re-uploading the file.
+  const linkBtn = document.createElement("button");
+  linkBtn.className = "tile-btn link";
+  linkBtn.title = "Link an existing library document to this node";
+  linkBtn.innerHTML = `<span class="icon">🔗</span> Link`;
+  linkBtn.onclick = (e) => {
+    e.stopPropagation();
+    openLinkDialog(node);
+  };
+  actions.appendChild(linkBtn);
 
   if (variant !== "header") {
     const expandBtn = document.createElement("button");
@@ -591,9 +606,12 @@ $("drawer-upload-btn").addEventListener("click", () => {
   openDocDialog(node, null, prefill);
 });
 
+// renderDocRow is used in the per-node drawer (when `node` is passed) where
+// the rightmost action is "Unlink" — i.e., remove the link to this node;
+// the file stays in the library. Library-page rows use a separate renderer.
 function renderDocRow(doc, node) {
   const row = document.createElement("div");
-  row.className = "doc-row";
+  row.className = "doc-row is-linked";
 
   const icon = document.createElement("div");
   icon.className = "doc-icon";
@@ -645,16 +663,16 @@ function renderDocRow(doc, node) {
 
   const edit = document.createElement("button");
   edit.textContent = "Edit";
-  edit.title = "Edit metadata";
+  edit.title = "Edit metadata (library-wide)";
   edit.onclick = (e) => { e.stopPropagation(); openDocDialog(node, doc); };
 
-  const del = document.createElement("button");
-  del.className = "danger";
-  del.textContent = "Delete";
-  del.title = "Delete document";
-  del.onclick = (e) => { e.stopPropagation(); deleteDoc(doc); };
+  const unlink = document.createElement("button");
+  unlink.className = "danger";
+  unlink.textContent = "Unlink";
+  unlink.title = "Remove the link to this node (document stays in the library)";
+  unlink.onclick = (e) => { e.stopPropagation(); unlinkDocFromNode(doc, node.id); };
 
-  actions.append(view, dl, edit, del);
+  actions.append(view, dl, edit, unlink);
   row.append(icon, info, actions);
   return row;
 }
@@ -686,7 +704,7 @@ function rerenderTileBadges(nodeId) {
 
 async function downloadDoc(docId) {
   try {
-    const r = await api(`/documents/${docId}/download`);
+    const r = await api(`/library/documents/${docId}/download`);
     window.open(r.url, "_blank", "noopener");
   } catch (err) {
     toast(`Download failed: ${err.message}`, true);
@@ -695,21 +713,40 @@ async function downloadDoc(docId) {
 
 async function viewDoc(docId) {
   try {
-    const r = await api(`/documents/${docId}/view`);
+    const r = await api(`/library/documents/${docId}/view`);
     window.open(r.url, "_blank", "noopener");
   } catch (err) {
     toast(`View failed: ${err.message}`, true);
   }
 }
 
-async function deleteDoc(doc) {
-  if (!confirm(`Delete "${doc.original_filename}"? This removes the file from storage and cannot be undone.`)) return;
+// Removing a doc from the drawer = UNLINK (the library doc stays).
+// "Delete from Library" (which actually purges the file) is reachable
+// only from the Library page.
+async function unlinkDocFromNode(doc, nodeId) {
+  if (!confirm(`Unlink "${doc.original_filename}" from this node? The document stays in the library.`)) return;
   try {
-    await api(`/documents/${doc.id}`, { method: "DELETE" });
-    state.docsByNode.delete(doc.node_id);
-    await ensureDocsLoaded(doc.node_id);
+    await api(`/nodes/${nodeId}/unlink-document/${doc.id}`, { method: "DELETE" });
+    state.docsByNode.delete(nodeId);
+    await ensureDocsLoaded(nodeId);
     renderRightPane();
-    toast("Document deleted");
+    if (drawerCtx.nodeId === nodeId) renderDrawerBody();
+    toast("Unlinked");
+  } catch (err) {
+    toast(`Unlink failed: ${err.message}`, true);
+  }
+}
+
+// Hard delete from the library (only invoked from the Library page).
+async function deleteLibraryDoc(doc) {
+  if (!confirm(`Delete "${doc.original_filename}" from the Library? This removes the file from storage and unlinks it from all nodes. Cannot be undone.`)) return;
+  try {
+    await api(`/library/documents/${doc.id}`, { method: "DELETE" });
+    // Any node that had this linked is now stale.
+    state.docsByNode.clear();
+    await loadLibrary();
+    renderRightPane();
+    toast("Document deleted from library");
   } catch (err) {
     toast(`Delete failed: ${err.message}`, true);
   }
@@ -720,16 +757,20 @@ async function deleteDoc(doc) {
 let docContext = { node: null, doc: null };
 
 function openDocDialog(node, doc, prefillType = null) {
+  // node === null  →  Library upload (no auto-link)
+  // node !== null  →  upload + auto-link to that node
   docContext = { node, doc };
-  $("doc-title").textContent = doc
-    ? `Edit document — ${doc.original_filename}`
-    : `Upload document to ${node.code} — ${node.name}`;
+  if (doc) {
+    $("doc-title").textContent = `Edit document — ${doc.original_filename}`;
+  } else if (node) {
+    $("doc-title").textContent = `Upload document to ${node.code} — ${node.name}`;
+  } else {
+    $("doc-title").textContent = "Upload to Library";
+  }
 
   $("doc-file-wrap").style.display = doc ? "none" : "";
   $("doc-file").value = "";
 
-  // Pre-select doc type: existing doc's type when editing, the badge's type
-  // when uploading from a drawer, otherwise the first concrete enum value.
   $("doc-type").value = doc ? doc.doc_type : (prefillType || "procedure");
   $("doc-version").value = doc ? (doc.version || "") : "";
   $("doc-owner").value = doc ? (doc.owner || "") : "";
@@ -738,6 +779,7 @@ function openDocDialog(node, doc, prefillType = null) {
   $("doc-next-review-date").value = doc ? (doc.next_review_date || "") : "";
   $("doc-tags").value = doc ? (doc.tags || "") : "";
   $("doc-notes").value = doc ? (doc.notes || "") : "";
+  $("doc-description").value = doc ? (doc.description || "") : "";
 
   renderTagChips($("doc-tags").value);
   updateDocFieldRequirements();
@@ -815,8 +857,9 @@ $("doc-confirm").addEventListener("click", async () => {
         next_review_date: $("doc-next-review-date").value || null,
         version: $("doc-version").value || null,
         notes: $("doc-notes").value || null,
+        description: $("doc-description").value || null,
       };
-      await api(`/documents/${doc.id}`, { method: "PUT", body: JSON.stringify(payload) });
+      await api(`/library/documents/${doc.id}`, { method: "PUT", body: JSON.stringify(payload) });
       toast("Document updated");
     } else {
       const file = $("doc-file").files[0];
@@ -832,13 +875,23 @@ $("doc-confirm").addEventListener("click", async () => {
       if ($("doc-next-review-date").value) fd.append("next_review_date", $("doc-next-review-date").value);
       if ($("doc-version").value) fd.append("version", $("doc-version").value);
       if ($("doc-notes").value) fd.append("notes", $("doc-notes").value);
+      if ($("doc-description").value) fd.append("description", $("doc-description").value);
 
-      await api(`/nodes/${node.id}/documents`, { method: "POST", body: fd });
-      toast("Document uploaded");
+      // Step 1: upload into the central library.
+      const created = await api(`/library/documents`, { method: "POST", body: fd });
+      // Step 2: auto-link to the originating node, if one was provided.
+      if (node && node.id != null) {
+        await api(`/nodes/${node.id}/link-document/${created.id}`, { method: "POST" });
+      }
+      toast(node ? "Uploaded and linked" : "Uploaded to library");
     }
     $("doc-dialog").close();
-    state.docsByNode.delete(node.id);
-    await ensureDocsLoaded(node.id);
+    if (node) {
+      state.docsByNode.delete(node.id);
+      await ensureDocsLoaded(node.id);
+    }
+    // Refresh library if it's the active view.
+    if (state.viewMode === "library") await loadLibrary();
     renderRightPane();
   } catch (err) {
     toast(`Save failed: ${err.message}`, true);
@@ -1447,6 +1500,265 @@ function toast(msg, isError = false) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.className = "toast"; }, 2800);
 }
+
+// ---------- Document Library (full-page view) ----------
+
+function setViewMode(mode) {
+  state.viewMode = mode;
+  const isLibrary = mode === "library";
+  document.querySelector("main.layout").hidden = isLibrary;
+  $("library-view").hidden = !isLibrary;
+  $("view-toggle-btn").innerHTML = isLibrary
+    ? "← Process Library"
+    : "📚 Library";
+  if (isLibrary) {
+    loadLibrary();
+  }
+}
+
+$("view-toggle-btn").addEventListener("click", () => {
+  setViewMode(state.viewMode === "library" ? "tiles" : "library");
+});
+
+async function loadLibrary() {
+  try {
+    const qs = new URLSearchParams();
+    if (state.libraryFilter.doc_type) qs.set("doc_type", state.libraryFilter.doc_type);
+    if (state.libraryFilter.search) qs.set("search", state.libraryFilter.search);
+    if (state.libraryFilter.tags.length > 0) qs.set("tags", state.libraryFilter.tags.join(","));
+    const path = "/library/documents" + (qs.toString() ? `?${qs}` : "");
+    state.libraryDocs = await api(path);
+    renderLibraryTable();
+  } catch (err) {
+    toast(`Failed to load library: ${err.message}`, true);
+  }
+}
+
+function renderLibraryTable() {
+  const tbody = $("library-table-body");
+  tbody.innerHTML = "";
+
+  // Apply the "Misc" doc-type filter client-side (the server only knows
+  // about real enum values, so this catches NULL/unknown types).
+  let docs = state.libraryDocs;
+  if (state.libraryFilter.doc_type === "_misc") {
+    const known = new Set(Object.keys(DOC_TYPE_LABELS));
+    docs = docs.filter((d) => !known.has(d.doc_type));
+  }
+
+  if (docs.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="7" class="muted" style="text-align:center;padding:24px;">No documents match.</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+
+  docs.forEach((doc) => {
+    const tr = document.createElement("tr");
+
+    const typeCell = document.createElement("td");
+    typeCell.innerHTML = `<span class="doc-badge dt-${doc.doc_type}" style="cursor:default;">${DOC_TYPE_LABELS[doc.doc_type] || "Misc"}</span>`;
+
+    const fileCell = document.createElement("td");
+    fileCell.innerHTML = `<div class="lib-filename"><span>${escapeHtml(doc.original_filename)}</span>${doc.description ? `<span class="lib-desc">${escapeHtml(doc.description)}</span>` : ""}</div>`;
+
+    const ownerCell = document.createElement("td");
+    ownerCell.textContent = doc.owner || "—";
+
+    const verCell = document.createElement("td");
+    verCell.textContent = doc.version || "—";
+
+    const reviewCell = document.createElement("td");
+    reviewCell.textContent = doc.next_review_date || "—";
+
+    const linkedCell = document.createElement("td");
+    const pill = document.createElement("span");
+    pill.className = "linked-pill";
+    pill.innerHTML = `<strong>${doc.linked_nodes_count || 0}</strong> nodes`;
+    pill.onclick = async () => showLinkedNodesTooltip(doc, pill);
+    pill.title = "Click to see which nodes this document is linked to";
+    linkedCell.appendChild(pill);
+
+    const actionsCell = document.createElement("td");
+    actionsCell.className = "lib-actions";
+    const mkBtn = (label, fn, danger = false) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      if (danger) b.className = "danger";
+      b.onclick = (e) => { e.stopPropagation(); fn(); };
+      return b;
+    };
+    actionsCell.append(
+      mkBtn("View", () => viewDoc(doc.id)),
+      mkBtn("Download", () => downloadDoc(doc.id)),
+      mkBtn("Edit", () => openDocDialog(null, doc)),
+      mkBtn("Delete", () => deleteLibraryDoc(doc), true),
+    );
+
+    tr.append(typeCell, fileCell, ownerCell, verCell, reviewCell, linkedCell, actionsCell);
+    tbody.appendChild(tr);
+  });
+}
+
+async function showLinkedNodesTooltip(doc, anchor) {
+  try {
+    const full = await api(`/library/documents/${doc.id}`);
+    const names = (full.linked_nodes || []).map((n) => `${n.code} ${n.name}`).join("\n");
+    anchor.title = names || "Not linked to any node yet.";
+  } catch (err) {
+    anchor.title = "Failed to load linked nodes.";
+  }
+}
+
+// Library filter input wiring
+$("library-search").addEventListener("input", (e) => {
+  state.libraryFilter.search = e.target.value;
+  // Debounce-lite: only fire after a short pause
+  clearTimeout(loadLibrary._t);
+  loadLibrary._t = setTimeout(loadLibrary, 200);
+});
+$("library-type-filter").addEventListener("change", (e) => {
+  state.libraryFilter.doc_type = e.target.value;
+  loadLibrary();
+});
+$("library-upload-btn").addEventListener("click", () => openDocDialog(null, null));
+
+// Library tag-chip filter — mirrors the predefined-tag list from the upload dialog.
+(function buildLibraryTagFilter() {
+  const c = $("library-tag-filter");
+  PREDEFINED_TAGS.forEach((tag) => {
+    const chip = document.createElement("span");
+    chip.className = "tag-chip";
+    chip.textContent = tag;
+    chip.onclick = () => {
+      const i = state.libraryFilter.tags.indexOf(tag);
+      if (i >= 0) state.libraryFilter.tags.splice(i, 1);
+      else state.libraryFilter.tags.push(tag);
+      chip.classList.toggle("active");
+      loadLibrary();
+    };
+    c.appendChild(chip);
+  });
+})();
+
+// ---------- Link Doc modal ----------
+
+let linkDialogCtx = { node: null };
+
+async function openLinkDialog(node) {
+  linkDialogCtx = { node };
+  $("link-dialog-title").textContent = `Link Document to ${node.code} — ${node.name}`;
+  $("link-search").value = "";
+  $("link-type-filter").value = "";
+  $("link-dialog").showModal();
+  await refreshLinkDialogBody();
+}
+
+async function refreshLinkDialogBody() {
+  const { node } = linkDialogCtx;
+  if (!node) return;
+  try {
+    const qs = new URLSearchParams();
+    if ($("link-type-filter").value) qs.set("doc_type", $("link-type-filter").value);
+    if ($("link-search").value) qs.set("search", $("link-search").value);
+    const docs = await api(`/library/documents${qs.toString() ? `?${qs}` : ""}`);
+    const linked = state.docsByNode.get(node.id) || await api(`/nodes/${node.id}/documents`);
+    state.docsByNode.set(node.id, linked);
+
+    const linkedIds = new Set(linked.map((d) => d.id));
+    renderLinkDialogBody(docs, linkedIds);
+  } catch (err) {
+    toast(`Search failed: ${err.message}`, true);
+  }
+}
+
+function renderLinkDialogBody(allDocs, linkedIds) {
+  const body = $("link-dialog-body");
+  body.innerHTML = "";
+
+  const linked = allDocs.filter((d) => linkedIds.has(d.id));
+  const unlinked = allDocs.filter((d) => !linkedIds.has(d.id));
+
+  if (linked.length > 0) {
+    const title = document.createElement("div");
+    title.className = "link-section-title";
+    title.textContent = `Already linked (${linked.length})`;
+    body.appendChild(title);
+    linked.forEach((d) => body.appendChild(renderLinkRow(d, true)));
+    const sep = document.createElement("div");
+    sep.className = "link-section-divider";
+    body.appendChild(sep);
+  }
+
+  const title2 = document.createElement("div");
+  title2.className = "link-section-title";
+  title2.textContent = `Available in library (${unlinked.length})`;
+  body.appendChild(title2);
+
+  if (unlinked.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "drawer-empty";
+    empty.textContent = "No matching documents.";
+    body.appendChild(empty);
+  } else {
+    unlinked.forEach((d) => body.appendChild(renderLinkRow(d, false)));
+  }
+}
+
+function renderLinkRow(doc, isLinked) {
+  const row = document.createElement("div");
+  row.className = "link-row" + (isLinked ? " is-linked" : "");
+
+  const icon = document.createElement("div");
+  icon.className = "doc-icon";
+  icon.textContent = DOC_TYPE_ICON[doc.doc_type] || "?";
+
+  const info = document.createElement("div");
+  info.className = "link-info";
+  const fn = document.createElement("div");
+  fn.className = "link-filename";
+  fn.textContent = doc.original_filename;
+  const sub = document.createElement("div");
+  sub.className = "link-sub";
+  const parts = [DOC_TYPE_LABELS[doc.doc_type] || "Misc"];
+  if (doc.owner) parts.push(`Owner: ${doc.owner}`);
+  if (doc.version) parts.push(`v${doc.version}`);
+  parts.push(`Linked to ${doc.linked_nodes_count || 0} node${doc.linked_nodes_count === 1 ? "" : "s"}`);
+  sub.textContent = parts.join(" · ");
+  info.append(fn, sub);
+
+  const action = document.createElement("button");
+  action.className = "link-action " + (isLinked ? "is-unlink" : "is-link");
+  action.textContent = isLinked ? "Unlink" : "Link";
+  action.onclick = async (e) => {
+    e.stopPropagation();
+    const { node } = linkDialogCtx;
+    try {
+      if (isLinked) {
+        await api(`/nodes/${node.id}/unlink-document/${doc.id}`, { method: "DELETE" });
+      } else {
+        await api(`/nodes/${node.id}/link-document/${doc.id}`, { method: "POST" });
+      }
+      state.docsByNode.delete(node.id);
+      await ensureDocsLoaded(node.id);
+      await refreshLinkDialogBody();
+      renderRightPane();
+    } catch (err) {
+      toast(`${isLinked ? "Unlink" : "Link"} failed: ${err.message}`, true);
+    }
+  };
+
+  row.append(icon, info, action);
+  return row;
+}
+
+$("link-dialog-close").addEventListener("click", () => $("link-dialog").close());
+$("link-search").addEventListener("input", () => {
+  clearTimeout(refreshLinkDialogBody._t);
+  refreshLinkDialogBody._t = setTimeout(refreshLinkDialogBody, 200);
+});
+$("link-type-filter").addEventListener("change", () => refreshLinkDialogBody());
+
 
 // ---------- Boot ----------
 

@@ -93,6 +93,12 @@ class Node(Base):
     )
 
     parent = relationship("Node", remote_side=[id], backref="children")
+    document_links = relationship(
+        "NodeDocument",
+        back_populates="node",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     __table_args__ = (
         CheckConstraint("level >= 1 AND level <= 4", name="ck_nodes_level_range"),
@@ -102,22 +108,18 @@ class Node(Base):
     )
 
 
-class Document(Base):
-    __tablename__ = "documents"
+class LibraryDocument(Base):
+    """A document file held in the central library. May be linked to zero,
+    one, or many nodes via the `node_documents` join table."""
+
+    __tablename__ = "library_documents"
 
     id = Column(Integer, primary_key=True, index=True)
-    node_id = Column(
-        Integer,
-        ForeignKey("nodes.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
 
     # R2 object key (uuid-based) — internal identifier in the bucket.
     filename = Column(String(512), nullable=False)
     # User-facing filename preserved from the upload.
     original_filename = Column(String(512), nullable=False)
-    # Stored R2 URL or key path. We presign on demand via the download endpoint.
     file_url = Column(Text, nullable=True)
     file_size = Column(Integer, nullable=True)
     mime_type = Column(String(255), nullable=True)
@@ -134,6 +136,7 @@ class Document(Base):
 
     version = Column(String(64), nullable=True)
     notes = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
 
     uploaded_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -145,7 +148,45 @@ class Document(Base):
         nullable=False,
     )
 
-    node = relationship("Node", backref="documents")
+    node_links = relationship(
+        "NodeDocument",
+        back_populates="library_document",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class NodeDocument(Base):
+    """Many-to-many link between a Node and a LibraryDocument."""
+
+    __tablename__ = "node_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    node_id = Column(
+        Integer,
+        ForeignKey("nodes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    library_document_id = Column(
+        Integer,
+        ForeignKey("library_documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    linked_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    linked_by = Column(String(255), nullable=True)
+
+    library_document = relationship("LibraryDocument", back_populates="node_links")
+    node = relationship("Node", back_populates="document_links")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "node_id", "library_document_id", name="uq_node_documents_node_doc"
+        ),
+    )
 
 
 class Kpi(Base):

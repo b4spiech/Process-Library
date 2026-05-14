@@ -14,9 +14,50 @@
       <span class="subtitle">The Kendall Group · Business Operating System · Phase 1</span>
     </div>
     <div class="meta">
+      <button type="button" id="view-toggle-btn" class="btn-secondary">📚 Library</button>
       <span id="health-indicator" class="health">checking…</span>
     </div>
   </header>
+
+  <!-- Library view — replaces .layout when active. Hidden by default. -->
+  <main class="library-view" id="library-view" hidden>
+    <div class="library-header">
+      <div class="library-filters">
+        <input type="search" id="library-search" class="library-search" placeholder="Search filename, description, owner, tags…" />
+        <select id="library-type-filter" class="library-type-filter">
+          <option value="">All Types</option>
+          <option value="procedure">Procedure</option>
+          <option value="work_instruction">Work Instruction</option>
+          <option value="form">Form</option>
+          <option value="certificate">Certificate</option>
+          <option value="policy">Policy</option>
+          <option value="reference">Reference</option>
+          <option value="ci_event">CI Event</option>
+          <option value="audit_report">Audit Report</option>
+          <option value="training_record">Training Record</option>
+          <option value="_misc">Misc</option>
+        </select>
+        <div class="library-tag-filter" id="library-tag-filter"></div>
+      </div>
+      <button type="button" id="library-upload-btn" class="btn-primary">+ Upload to Library</button>
+    </div>
+    <div class="library-table-wrap">
+      <table class="library-table" id="library-table">
+        <thead>
+          <tr>
+            <th style="width: 56px;">Type</th>
+            <th>Filename</th>
+            <th>Owner</th>
+            <th style="width: 80px;">Version</th>
+            <th style="width: 120px;">Next Review</th>
+            <th style="width: 110px;">Linked</th>
+            <th style="width: 180px;"></th>
+          </tr>
+        </thead>
+        <tbody id="library-table-body"></tbody>
+      </table>
+    </div>
+  </main>
 
   <main class="layout">
     <section class="tree-pane">
@@ -197,6 +238,10 @@
         </label>
         <div class="span-2 tag-chips" id="doc-tag-chips"></div>
 
+        <label class="span-2">Description
+          <textarea id="doc-description" rows="2" placeholder="Short summary shown in the library"></textarea>
+        </label>
+
         <label class="span-2">Notes
           <textarea id="doc-notes" rows="2"></textarea>
         </label>
@@ -204,6 +249,32 @@
       <div class="form-footer">
         <button type="button" value="cancel" id="doc-cancel" class="btn-secondary">Cancel</button>
         <button type="button" value="confirm" id="doc-confirm" class="btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Link existing library doc to a node -->
+  <dialog id="link-dialog" class="big-dialog">
+    <form id="link-form" method="dialog">
+      <h3 id="link-dialog-title">Link Document to Node</h3>
+      <div class="link-dialog-filters">
+        <input type="search" id="link-search" placeholder="Search filename, description, owner, tags…" />
+        <select id="link-type-filter">
+          <option value="">All Types</option>
+          <option value="procedure">Procedure</option>
+          <option value="work_instruction">Work Instruction</option>
+          <option value="form">Form</option>
+          <option value="certificate">Certificate</option>
+          <option value="policy">Policy</option>
+          <option value="reference">Reference</option>
+          <option value="ci_event">CI Event</option>
+          <option value="audit_report">Audit Report</option>
+          <option value="training_record">Training Record</option>
+        </select>
+      </div>
+      <div id="link-dialog-body" class="link-dialog-body"></div>
+      <div class="form-footer">
+        <button type="button" id="link-dialog-close" class="btn-secondary">Close</button>
       </div>
     </form>
   </dialog>
