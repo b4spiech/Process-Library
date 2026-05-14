@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
-from models import ReviewFrequency, NodeStatus
+from models import ReviewFrequency, NodeStatus, DocType
 
 
 class NodeBase(BaseModel):
@@ -62,3 +62,47 @@ class NodeTree(NodeRead):
 
 
 NodeTree.model_rebuild()
+
+
+# ---------- Documents ----------
+
+
+class DocumentBase(BaseModel):
+    doc_type: DocType
+    tags: Optional[str] = None
+    owner: Optional[str] = None
+    review_frequency: Optional[ReviewFrequency] = None
+    last_review_date: Optional[date] = None
+    next_review_date: Optional[date] = None
+    version: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class DocumentUpdate(BaseModel):
+    doc_type: Optional[DocType] = None
+    tags: Optional[str] = None
+    owner: Optional[str] = None
+    review_frequency: Optional[ReviewFrequency] = None
+    last_review_date: Optional[date] = None
+    next_review_date: Optional[date] = None
+    version: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class DocumentRead(DocumentBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    node_id: int
+    filename: str
+    original_filename: str
+    file_url: Optional[str] = None
+    file_size: Optional[int] = None
+    mime_type: Optional[str] = None
+    uploaded_at: datetime
+    updated_at: datetime
+
+
+class DocumentDownloadUrl(BaseModel):
+    url: str
+    expires_in: int

@@ -27,87 +27,95 @@
       <div id="tree" class="tree"></div>
     </section>
 
-    <section class="detail-pane" id="detail-pane">
-      <div class="empty-state" id="empty-state">
-        <p>Select a node to view or edit its governance metadata.</p>
+    <section class="tile-pane" id="tile-pane">
+      <div class="pane-header">
+        <h2>Domains</h2>
+        <span class="muted" id="tile-summary"></span>
       </div>
-      <form id="detail-form" class="detail-form" style="display:none;">
-        <div class="detail-header">
-          <div>
-            <span class="level-chip" id="d-level"></span>
-            <span class="code-chip" id="d-code-chip"></span>
-          </div>
-          <div class="detail-actions">
-            <button type="button" id="add-child-btn" class="btn-secondary">+ Add child</button>
-            <button type="button" id="delete-btn" class="btn-danger">Delete</button>
-          </div>
-        </div>
-
-        <div class="grid">
-          <label>Code
-            <input type="text" id="f-code" required />
-          </label>
-          <label>Name
-            <input type="text" id="f-name" required />
-          </label>
-          <label class="span-2">Description
-            <textarea id="f-description" rows="2"></textarea>
-          </label>
-
-          <label>Owner
-            <input type="text" id="f-owner" placeholder="Named person responsible" />
-          </label>
-          <label>Status
-            <select id="f-status">
-              <option value="active">Active</option>
-              <option value="under_review">Under Review</option>
-              <option value="deprecated">Deprecated</option>
-            </select>
-          </label>
-
-          <label>Review Frequency
-            <select id="f-review-frequency">
-              <option value="">— none —</option>
-              <option value="monthly">Monthly</option>
-              <option value="quarterly">Quarterly</option>
-              <option value="annually">Annually</option>
-            </select>
-          </label>
-          <label>Last Review Date
-            <input type="date" id="f-last-review-date" />
-          </label>
-
-          <label>Next Review Date
-            <input type="date" id="f-next-review-date" disabled />
-          </label>
-          <label>Linked Procedure URL
-            <input type="url" id="f-linked-procedure-url" placeholder="https://…" />
-          </label>
-
-          <label>KPI Name
-            <input type="text" id="f-kpi-name" />
-          </label>
-          <label>KPI Target
-            <input type="text" id="f-kpi-target" />
-          </label>
-
-          <label>KPI Current
-            <input type="text" id="f-kpi-current" />
-          </label>
-          <label>Camunda Process Key
-            <input type="text" id="f-camunda-process-key" placeholder="(future BPMN integration)" />
-          </label>
-        </div>
-
-        <div class="form-footer">
-          <span class="muted" id="meta-info"></span>
-          <button type="submit" class="btn-primary">Save</button>
-        </div>
-      </form>
+      <div id="tile-grid" class="tile-grid-root"></div>
     </section>
   </main>
 
-  <!-- Add-child / add-root dialog -->
+  <!-- Governance details modal (per-tile Details button) -->
+  <dialog id="details-dialog" class="big-dialog">
+    <form id="detail-form" class="detail-form">
+      <div class="detail-header">
+        <div>
+          <span class="level-chip" id="d-level"></span>
+          <span class="code-chip" id="d-code-chip"></span>
+          <span class="muted" id="d-name-chip" style="margin-left:8px;"></span>
+        </div>
+        <div class="detail-actions">
+          <button type="button" id="add-child-btn" class="btn-secondary">+ Add child</button>
+          <button type="button" id="delete-btn" class="btn-danger">Delete</button>
+          <button type="button" id="details-close" class="btn-secondary">Close</button>
+        </div>
+      </div>
+
+      <div class="grid">
+        <label>Code
+          <input type="text" id="f-code" required />
+        </label>
+        <label>Name
+          <input type="text" id="f-name" required />
+        </label>
+        <label class="span-2">Description
+          <textarea id="f-description" rows="2"></textarea>
+        </label>
+
+        <label>Owner
+          <input type="text" id="f-owner" placeholder="Named person responsible" />
+        </label>
+        <label>Status
+          <select id="f-status">
+            <option value="active">Active</option>
+            <option value="under_review">Under Review</option>
+            <option value="deprecated">Deprecated</option>
+          </select>
+        </label>
+
+        <label>Review Frequency
+          <select id="f-review-frequency">
+            <option value="">— none —</option>
+            <option value="monthly">Monthly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="annually">Annually</option>
+          </select>
+        </label>
+        <label>Last Review Date
+          <input type="date" id="f-last-review-date" />
+        </label>
+
+        <label>Next Review Date
+          <input type="date" id="f-next-review-date" disabled />
+        </label>
+        <label>Linked Procedure URL
+          <input type="url" id="f-linked-procedure-url" placeholder="https://…" />
+        </label>
+
+        <label>KPI Name
+          <input type="text" id="f-kpi-name" />
+        </label>
+        <label>KPI Target
+          <input type="text" id="f-kpi-target" />
+        </label>
+
+        <label>KPI Current
+          <input type="text" id="f-kpi-current" />
+        </label>
+        <label>Camunda Process Key
+          <input type="text" id="f-camunda-process-key" placeholder="(future BPMN integration)" />
+        </label>
+      </div>
+
+      <div class="form-footer">
+        <span class="muted" id="meta-info"></span>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Add child / add root dialog -->
   <dialog id="add-dialog">
     <form method="dialog" id="add-form">
       <h3 id="add-title">Add child</h3>
@@ -135,6 +143,66 @@
       <div class="form-footer">
         <button type="button" value="cancel" id="add-cancel" class="btn-secondary">Cancel</button>
         <button type="button" value="confirm" id="add-confirm" class="btn-primary">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Document upload / edit dialog -->
+  <dialog id="doc-dialog" class="big-dialog">
+    <form method="dialog" id="doc-form">
+      <h3 id="doc-title">Upload document</h3>
+      <div class="grid">
+        <label class="span-2" id="doc-file-wrap">File
+          <input type="file" id="doc-file" />
+        </label>
+        <label>Document Type
+          <select id="doc-type" required>
+            <option value="procedure">Procedure</option>
+            <option value="work_instruction">Work Instruction</option>
+            <option value="form">Form</option>
+            <option value="certificate">Certificate</option>
+            <option value="policy">Policy</option>
+            <option value="reference">Reference</option>
+            <option value="ci_event">CI Event</option>
+            <option value="audit_report">Audit Report</option>
+            <option value="training_record">Training Record</option>
+          </select>
+        </label>
+        <label>Version
+          <input type="text" id="doc-version" placeholder="e.g. 1.0" />
+        </label>
+
+        <label>Owner <span id="doc-owner-req" class="req-mark" style="display:none;">*</span>
+          <input type="text" id="doc-owner" />
+        </label>
+        <label>Review Frequency <span id="doc-freq-req" class="req-mark" style="display:none;">*</span>
+          <select id="doc-review-frequency">
+            <option value="">— none —</option>
+            <option value="monthly">Monthly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="annually">Annually</option>
+          </select>
+        </label>
+
+        <label>Last Review Date
+          <input type="date" id="doc-last-review-date" />
+        </label>
+        <label>Next Review Date
+          <input type="date" id="doc-next-review-date" />
+        </label>
+
+        <label class="span-2">Tags (comma-separated)
+          <input type="text" id="doc-tags" placeholder="e.g. SOP, Training" />
+        </label>
+        <div class="span-2 tag-chips" id="doc-tag-chips"></div>
+
+        <label class="span-2">Notes
+          <textarea id="doc-notes" rows="2"></textarea>
+        </label>
+      </div>
+      <div class="form-footer">
+        <button type="button" value="cancel" id="doc-cancel" class="btn-secondary">Cancel</button>
+        <button type="button" value="confirm" id="doc-confirm" class="btn-primary">Save</button>
       </div>
     </form>
   </dialog>

@@ -30,6 +30,18 @@ class NodeStatus(str, enum.Enum):
     deprecated = "deprecated"
 
 
+class DocType(str, enum.Enum):
+    procedure = "procedure"
+    work_instruction = "work_instruction"
+    form = "form"
+    certificate = "certificate"
+    policy = "policy"
+    reference = "reference"
+    ci_event = "ci_event"
+    audit_report = "audit_report"
+    training_record = "training_record"
+
+
 class Node(Base):
     __tablename__ = "nodes"
 
@@ -74,3 +86,49 @@ class Node(Base):
         Index("ix_nodes_parent_id", "parent_id"),
         Index("ix_nodes_level", "level"),
     )
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    node_id = Column(
+        Integer,
+        ForeignKey("nodes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # R2 object key (uuid-based) — internal identifier in the bucket.
+    filename = Column(String(512), nullable=False)
+    # User-facing filename preserved from the upload.
+    original_filename = Column(String(512), nullable=False)
+    # Stored R2 URL or key path. We presign on demand via the download endpoint.
+    file_url = Column(Text, nullable=True)
+    file_size = Column(Integer, nullable=True)
+    mime_type = Column(String(255), nullable=True)
+
+    doc_type = Column(Enum(DocType, name="doc_type"), nullable=False)
+    tags = Column(Text, nullable=True)  # comma-separated
+
+    owner = Column(String(255), nullable=True)
+    review_frequency = Column(
+        Enum(ReviewFrequency, name="review_frequency"), nullable=True
+    )
+    last_review_date = Column(Date, nullable=True)
+    next_review_date = Column(Date, nullable=True)
+
+    version = Column(String(64), nullable=True)
+    notes = Column(Text, nullable=True)
+
+    uploaded_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    node = relationship("Node", backref="documents")

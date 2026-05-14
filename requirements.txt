@@ -8,3 +8,4 @@ pydantic-settings==2.5.2
 python-dotenv==1.0.1
 python-dateutil==2.9.0.post0
 python-multipart==0.0.12
+boto3==1.35.36

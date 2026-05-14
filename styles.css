@@ -280,3 +280,220 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
 }
 .toast.show { opacity: 1; transform: translateY(0); }
 .toast.error { background: var(--danger); }
+
+
+/* ============================================================
+   Tile pane — replaces the old single-form detail pane.
+   Tiles render in an accordion-style drill-down with children
+   indented under their parent when expanded.
+   ============================================================ */
+
+.tile-pane {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tile-grid-root {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* A group of sibling tiles at the same level */
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+/* When children are rendered under an expanded parent, indent the block */
+.tile-children {
+  margin-top: 12px;
+  margin-left: 24px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tile {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.tile:hover { border-color: var(--border-strong); }
+.tile.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.tile-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tile-top .row-code { font-size: 11px; }
+.tile-name {
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.25;
+}
+.tile-meta { color: var(--muted); font-size: 11px; }
+.tile-kpi {
+  background: #f3f5f9;
+  border-radius: 5px;
+  padding: 7px 9px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tile-kpi .kpi-name { font-weight: 600; color: var(--text); }
+.tile-kpi .kpi-vals { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; }
+
+.tile-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.tile-btn {
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1;
+}
+.tile-btn:hover { background: var(--row-hover); }
+.tile-btn.is-expanded { background: var(--row-selected); border-color: var(--accent); color: var(--accent); }
+.tile-btn[disabled] { opacity: 0.35; cursor: not-allowed; }
+.tile-btn .icon { font-size: 13px; }
+
+/* Docs section appears below the tile body when expanded */
+.tile-docs {
+  margin-top: 4px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tile-docs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+.tile-docs-list { display: flex; flex-direction: column; gap: 6px; }
+.tile-docs-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 6px 0;
+}
+
+.doc-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fafbfd;
+  align-items: center;
+}
+.doc-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--row-selected);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.doc-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.doc-filename {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-sub {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.doc-tag {
+  background: var(--row-selected);
+  color: var(--accent);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+}
+.doc-actions { display: flex; gap: 4px; }
+.doc-actions button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.doc-actions button:hover { background: var(--row-hover); color: var(--text); }
+.doc-actions button.danger:hover { background: #fbeeec; color: var(--danger); }
+
+/* Big dialog for forms with many fields */
+dialog.big-dialog { width: min(720px, 94vw); }
+
+/* Required-field indicator inside the doc dialog */
+.req-mark { color: var(--danger); margin-left: 2px; }
+
+/* Predefined-tag chips */
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: -4px;
+}
+.tag-chip {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: #fff;
+  cursor: pointer;
+  user-select: none;
+}
+.tag-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tag-chip:hover { border-color: var(--accent); }
