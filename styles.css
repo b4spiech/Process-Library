@@ -346,64 +346,36 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
   padding: 16px;
 }
 
-/* Root mode: L1 tiles in a responsive grid */
+/* Compact tiles in a responsive grid at every level: 3 / 2 / 1 columns. */
 .tile-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
-
-/* Branch mode: vertical org-chart view */
-.branch-view {
-  display: flex;
-  flex-direction: column;
+@media (max-width: 1180px) {
+  .tile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 740px) {
+  .tile-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* Header tile (focused parent) */
+/* Branch mode: header tile sits in a single-column row above the children grid */
+.branch-view { display: flex; flex-direction: column; gap: 18px; }
+.branch-header-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 1180px) { .branch-header-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 740px) { .branch-header-row { grid-template-columns: minmax(0, 1fr); } }
+
 .branch-header-tile {
   border: 2px solid var(--accent);
   background: linear-gradient(180deg, #f4f8ff 0%, #ffffff 100%);
   box-shadow: 0 1px 2px rgba(15,22,36,0.05), 0 6px 16px rgba(37,99,235,0.08);
 }
 
-/* Container that holds the children and renders the connector line */
-.branch-children-list {
-  position: relative;
-  margin-top: 24px;
-  padding-left: 40px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.branch-children-list::before {
-  /* vertical trunk drops down from below the header */
-  content: "";
-  position: absolute;
-  left: 20px;
-  top: -24px;
-  bottom: 50%;
-  width: 2px;
-  background: var(--border-strong);
-}
-.branch-children-list.has-children::before {
-  bottom: 28px; /* extend trunk to last child's connector */
-}
-.branch-child {
-  position: relative;
-}
-.branch-child::before {
-  /* horizontal stub connecting child to the vertical trunk */
-  content: "";
-  position: absolute;
-  left: -20px;
-  top: 28px;
-  width: 20px;
-  height: 2px;
-  background: var(--border-strong);
-}
-
 .branch-empty {
-  margin-top: 16px;
   padding: 14px 16px;
   border: 1px dashed var(--border-strong);
   border-radius: 6px;
@@ -412,18 +384,19 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
   font-size: 13px;
 }
 
-/* Doc-count badge shown on tiles */
-.doc-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--muted);
-  background: #f3f5f9;
-  border-radius: 3px;
-  padding: 2px 6px;
+/* Compact tile size + flex column so the badge row anchors at the bottom */
+.tile {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-.doc-count strong { color: var(--text); font-weight: 600; }
+
+.tile-owner {
+  font-size: 12px;
+  color: var(--muted);
+}
+.tile-owner strong { color: var(--text); font-weight: 500; }
 
 .tile {
   background: #fff;
@@ -489,30 +462,118 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
 .tile-btn[disabled] { opacity: 0.35; cursor: not-allowed; }
 .tile-btn .icon { font-size: 13px; }
 
-/* Docs section appears below the tile body when expanded */
-.tile-docs {
-  margin-top: 4px;
-  border-top: 1px dashed var(--border);
+/* Doc-type summary badges (anchor to the bottom of each tile) */
+.tile-doc-badges {
+  margin-top: auto;
   padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.doc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 500;
+  border: 1px solid transparent;
+  line-height: 1.4;
+  user-select: none;
+}
+.doc-badge:hover { filter: brightness(0.96); }
+.doc-badge .badge-count {
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 999px;
+  padding: 0 6px;
+  min-width: 18px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 10px;
+}
+/* Per-type subtle palette */
+.doc-badge.dt-procedure        { background: #dbeafe; color: #1d4ed8; }
+.doc-badge.dt-work_instruction { background: #e0e7ff; color: #4338ca; }
+.doc-badge.dt-form             { background: #f1f5f9; color: #475569; }
+.doc-badge.dt-certificate      { background: #dcfce7; color: #15803d; }
+.doc-badge.dt-policy           { background: #fef3c7; color: #a16207; }
+.doc-badge.dt-reference        { background: #cffafe; color: #0e7490; }
+.doc-badge.dt-ci_event         { background: #ffedd5; color: #c2410c; }
+.doc-badge.dt-audit_report     { background: #fee2e2; color: #b91c1c; }
+.doc-badge.dt-training_record  { background: #f3e8ff; color: #7e22ce; }
+.doc-badge.dt-misc             { background: #ecedf1; color: #4b5563; }
+
+/* Right-side slide-in docs drawer */
+.docs-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: auto;
+  bottom: 0;
+  margin: 0;
+  height: 100vh;
+  max-height: 100vh;
+  width: min(560px, 94vw);
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0;
+  box-shadow: -8px 0 24px rgba(15, 22, 36, 0.18);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  background: var(--surface);
 }
-.tile-docs-header {
+.docs-drawer::backdrop { background: rgba(15, 22, 36, 0.35); }
+.docs-drawer[open] { animation: drawer-slide-in 0.18s ease-out; }
+@keyframes drawer-slide-in {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+.drawer-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  font-size: 12px;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+.drawer-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.drawer-node-name {
+  font-size: 11px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  font-weight: 600;
 }
-.tile-docs-list { display: flex; flex-direction: column; gap: 6px; }
-.tile-docs-empty {
-  color: var(--muted);
+.drawer-doc-type {
+  font-weight: 600;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.drawer-count {
   font-size: 12px;
-  padding: 6px 0;
+  color: var(--muted);
+  font-weight: 400;
+}
+.drawer-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.drawer-empty {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 24px 12px;
 }
 
 .doc-row {

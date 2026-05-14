@@ -288,8 +288,8 @@ function renderRootMode(container) {
   container.appendChild(grid);
 }
 
-// Branch mode: highlighted parent header on top, vertical stack of children below
-// with an org-chart connector line.
+// Branch mode: highlighted parent header tile on its own row, children below in
+// the same responsive compact grid as root mode.
 function renderBranchMode(container) {
   const node = state.byId.get(state.currentNodeId);
   if (!node) {
@@ -299,14 +299,13 @@ function renderBranchMode(container) {
   const view = document.createElement("div");
   view.className = "branch-view";
 
-  // Header tile (parent in focus) — no Expand button (already focused).
-  view.appendChild(renderTile(node, { variant: "header" }));
+  const headerRow = document.createElement("div");
+  headerRow.className = "branch-header-row";
+  headerRow.appendChild(renderTile(node, { variant: "header" }));
+  view.appendChild(headerRow);
   ensureDocsLoaded(node.id);
 
   const children = node.children || [];
-  const childList = document.createElement("div");
-  childList.className = "branch-children-list" + (children.length > 0 ? " has-children" : "");
-
   if (children.length === 0) {
     const empty = document.createElement("div");
     empty.className = "branch-empty";
@@ -314,31 +313,29 @@ function renderBranchMode(container) {
       node.level >= 4
         ? "Terminal process (L4) — no further breakdown."
         : "No children yet. Use “+ Add child” in Details to add one.";
-    childList.appendChild(empty);
+    view.appendChild(empty);
   } else {
+    const grid = document.createElement("div");
+    grid.className = "tile-grid";
     children.forEach((c) => {
-      const childWrap = document.createElement("div");
-      childWrap.className = "branch-child";
-      childWrap.appendChild(renderTile(c, { variant: "branch-child" }));
+      grid.appendChild(renderTile(c, { variant: "grid" }));
       ensureDocsLoaded(c.id);
-      childList.appendChild(childWrap);
     });
+    view.appendChild(grid);
   }
 
-  view.appendChild(childList);
   container.appendChild(view);
 }
 
 // `variant` controls minor differences:
-//   "grid"          — root-mode L1 tile in a grid cell
-//   "header"        — focused parent header tile in branch mode (highlighted, no Expand)
-//   "branch-child"  — child tile in branch mode (full-width, has Expand to drill deeper)
+//   "grid"   — compact tile in a responsive grid cell (root mode + branch children)
+//   "header" — focused parent header tile in branch mode (highlighted, no Expand)
 function renderTile(node, { variant }) {
   const wrap = document.createElement("div");
   wrap.className = "tile" + (variant === "header" ? " branch-header-tile" : "");
   wrap.dataset.id = node.id;
 
-  // ---- Top row: status / code / L# / doc-count / actions ----
+  // ---- Top row: status / code / L# / actions ----
   const top = document.createElement("div");
   top.className = "tile-top";
 
@@ -354,14 +351,22 @@ function renderTile(node, { variant }) {
   levelMeta.className = "tile-meta";
   levelMeta.textContent = `L${node.level}`;
 
-  const docCount = document.createElement("span");
-  docCount.className = "doc-count";
-  docCount.dataset.docCountFor = node.id;
-  const cached = state.docsByNode.get(node.id);
-  docCount.innerHTML = `<strong>${cached ? cached.length : "—"}</strong> docs`;
-
   const actions = document.createElement("div");
   actions.className = "tile-actions";
+
+  // Compact "+ Doc" button gives users an upload affordance even when the
+  // tile currently shows no badges (otherwise uploads would only be reachable
+  // by clicking an existing per-type badge, which doesn't exist for the first
+  // document of any node).
+  const uploadBtn = document.createElement("button");
+  uploadBtn.className = "tile-btn";
+  uploadBtn.title = "Upload document";
+  uploadBtn.innerHTML = `<span class="icon">+</span> Doc`;
+  uploadBtn.onclick = (e) => {
+    e.stopPropagation();
+    openDocDialog(node, null);
+  };
+  actions.appendChild(uploadBtn);
 
   if (variant !== "header") {
     const expandBtn = document.createElement("button");
@@ -384,13 +389,21 @@ function renderTile(node, { variant }) {
   };
   actions.appendChild(detailsBtn);
 
-  top.append(dot, code, levelMeta, docCount, actions);
+  top.append(dot, code, levelMeta, actions);
   wrap.appendChild(top);
 
   const name = document.createElement("div");
   name.className = "tile-name";
   name.textContent = node.name;
   wrap.appendChild(name);
+
+  if (node.owner) {
+    const owner = document.createElement("div");
+    owner.className = "tile-owner";
+    owner.innerHTML = `Owner: <strong></strong>`;
+    owner.querySelector("strong").textContent = node.owner;
+    wrap.appendChild(owner);
+  }
 
   if (node.kpi_name) {
     const kpi = document.createElement("div");
@@ -408,15 +421,16 @@ function renderTile(node, { variant }) {
     wrap.appendChild(kpi);
   }
 
-  // Documents section always rendered (root-mode tiles too, so users see docs
-  // before drilling in). The list is lazy-loaded.
-  wrap.appendChild(renderDocsSection(node));
+  // Doc-type badges row pinned to the bottom of the tile (via margin-top:auto
+  // in CSS). Hidden when the node has no documents.
+  const badges = renderDocBadges(node);
+  if (badges) wrap.appendChild(badges);
 
-  // Clicking the tile body (but not buttons) drills into this branch — except
-  // for the header tile, which is already focused.
+  // Clicking the tile body (but not buttons or badges) drills into the branch
+  // — except for the header tile, which is already focused.
   if (variant !== "header") {
     wrap.onclick = (e) => {
-      if (e.target.closest("button")) return;
+      if (e.target.closest("button, .doc-badge")) return;
       navigate(node.id);
     };
   }
@@ -424,48 +438,120 @@ function renderTile(node, { variant }) {
   return wrap;
 }
 
-function updateDocCountFor(nodeId, count) {
-  const el = document.querySelector(`[data-doc-count-for="${nodeId}"]`);
-  if (el) el.innerHTML = `<strong>${count}</strong> docs`;
+// ---------- Doc-type badges + drawer ----------
+
+const MISC_BUCKET = "_misc";
+
+function groupDocsByType(docs) {
+  // Returns Map<type, Document[]> preserving the order in DOC_TYPE_LABELS,
+  // with an extra MISC_BUCKET at the end if there are unrecognized types.
+  const groups = new Map();
+  Object.keys(DOC_TYPE_LABELS).forEach((t) => groups.set(t, []));
+  groups.set(MISC_BUCKET, []);
+
+  docs.forEach((d) => {
+    const key = DOC_TYPE_LABELS[d.doc_type] ? d.doc_type : MISC_BUCKET;
+    groups.get(key).push(d);
+  });
+
+  // Drop empty buckets
+  for (const [k, arr] of groups) {
+    if (arr.length === 0) groups.delete(k);
+  }
+  return groups;
 }
 
-// ---------- Documents section per tile ----------
+function labelForBucket(bucket) {
+  return bucket === MISC_BUCKET ? "Misc" : DOC_TYPE_LABELS[bucket];
+}
 
-function renderDocsSection(node) {
-  const sec = document.createElement("div");
-  sec.className = "tile-docs";
-
-  const header = document.createElement("div");
-  header.className = "tile-docs-header";
-  header.innerHTML = `<span>Documents</span>`;
-
-  const uploadBtn = document.createElement("button");
-  uploadBtn.className = "tile-btn";
-  uploadBtn.innerHTML = `<span class="icon">+</span> Upload`;
-  uploadBtn.onclick = (e) => {
-    e.stopPropagation();
-    openDocDialog(node, null);
-  };
-  header.appendChild(uploadBtn);
-  sec.appendChild(header);
-
-  const list = document.createElement("div");
-  list.className = "tile-docs-list";
-  list.dataset.docsForNode = node.id;
-  sec.appendChild(list);
-
+function renderDocBadges(node) {
   const docs = state.docsByNode.get(node.id);
-  if (!docs) {
-    list.innerHTML = '<div class="tile-docs-empty">Loading…</div>';
-    ensureDocsLoaded(node.id);
-  } else if (docs.length === 0) {
-    list.innerHTML = '<div class="tile-docs-empty">No documents yet.</div>';
-  } else {
-    docs.forEach((d) => list.appendChild(renderDocRow(d, node)));
+  // If we haven't loaded docs yet, return null and let ensureDocsLoaded
+  // trigger a re-render via renderRightPane when the count is known.
+  if (!docs || docs.length === 0) return null;
+
+  const wrap = document.createElement("div");
+  wrap.className = "tile-doc-badges";
+
+  const groups = groupDocsByType(docs);
+  for (const [bucket, arr] of groups) {
+    const badge = document.createElement("span");
+    badge.className = `doc-badge dt-${bucket}`;
+    badge.title = `Open ${labelForBucket(bucket)} documents`;
+    badge.innerHTML = `${labelForBucket(bucket)} <span class="badge-count">${arr.length}</span>`;
+    badge.onclick = (e) => {
+      e.stopPropagation();
+      openDocsDrawer(node, bucket);
+    };
+    wrap.appendChild(badge);
+  }
+  return wrap;
+}
+
+// ---- Drawer state + rendering ----
+
+let drawerCtx = { nodeId: null, bucket: null };
+
+function openDocsDrawer(node, bucket) {
+  drawerCtx = { nodeId: node.id, bucket };
+  $("drawer-node-name").textContent = `${node.code} — ${node.name}`;
+
+  const headerLabel = $("drawer-doc-type");
+  headerLabel.innerHTML = "";
+  const chip = document.createElement("span");
+  chip.className = `doc-badge dt-${bucket}`;
+  chip.style.cursor = "default";
+  chip.textContent = labelForBucket(bucket);
+  const countEl = document.createElement("span");
+  countEl.className = "drawer-count";
+  countEl.id = "drawer-count";
+  headerLabel.append(chip, countEl);
+
+  renderDrawerBody();
+  $("docs-drawer").showModal();
+}
+
+function renderDrawerBody() {
+  if (drawerCtx.nodeId === null) return;
+  const node = state.byId.get(drawerCtx.nodeId);
+  const body = $("drawer-body");
+  body.innerHTML = "";
+
+  const docs = state.docsByNode.get(drawerCtx.nodeId) || [];
+  const filtered = docs.filter((d) => {
+    const key = DOC_TYPE_LABELS[d.doc_type] ? d.doc_type : MISC_BUCKET;
+    return key === drawerCtx.bucket;
+  });
+
+  $("drawer-count").textContent = `${filtered.length} document${filtered.length === 1 ? "" : "s"}`;
+
+  if (filtered.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "drawer-empty";
+    empty.textContent = "No documents of this type remain. Use Upload to add one.";
+    body.appendChild(empty);
+    return;
   }
 
-  return sec;
+  filtered.forEach((d) => body.appendChild(renderDocRow(d, node)));
 }
+
+function closeDocsDrawer() {
+  drawerCtx = { nodeId: null, bucket: null };
+  $("docs-drawer").close();
+}
+
+$("drawer-close-btn").addEventListener("click", () => closeDocsDrawer());
+
+$("drawer-upload-btn").addEventListener("click", () => {
+  if (drawerCtx.nodeId === null) return;
+  const node = state.byId.get(drawerCtx.nodeId);
+  // Pre-select the doc type matching this drawer's badge. Misc has no
+  // server-side equivalent, so it falls back to the first concrete type.
+  const prefill = drawerCtx.bucket === MISC_BUCKET ? null : drawerCtx.bucket;
+  openDocDialog(node, null, prefill);
+});
 
 function renderDocRow(doc, node) {
   const row = document.createElement("div");
@@ -535,20 +621,24 @@ async function ensureDocsLoaded(nodeId) {
   try {
     const docs = await api(`/nodes/${nodeId}/documents`);
     state.docsByNode.set(nodeId, docs);
-    updateDocCountFor(nodeId, docs.length);
-    const list = document.querySelector(`[data-docs-for-node="${nodeId}"]`);
-    if (list) {
-      list.innerHTML = "";
-      if (docs.length === 0) {
-        list.innerHTML = '<div class="tile-docs-empty">No documents yet.</div>';
-      } else {
-        const node = state.byId.get(nodeId);
-        docs.forEach((d) => list.appendChild(renderDocRow(d, node)));
-      }
-    }
+
+    // Re-render the badges on the affected tile (and, if open, the drawer).
+    rerenderTileBadges(nodeId);
+    if (drawerCtx.nodeId === nodeId) renderDrawerBody();
   } catch (err) {
     toast(`Failed to load documents: ${err.message}`, true);
   }
+}
+
+function rerenderTileBadges(nodeId) {
+  const tile = document.querySelector(`.tile[data-id="${nodeId}"]`);
+  if (!tile) return;
+  const old = tile.querySelector(".tile-doc-badges");
+  if (old) old.remove();
+  const node = state.byId.get(nodeId);
+  if (!node) return;
+  const fresh = renderDocBadges(node);
+  if (fresh) tile.appendChild(fresh);
 }
 
 async function downloadDoc(docId) {
@@ -577,7 +667,7 @@ async function deleteDoc(doc) {
 
 let docContext = { node: null, doc: null };
 
-function openDocDialog(node, doc) {
+function openDocDialog(node, doc, prefillType = null) {
   docContext = { node, doc };
   $("doc-title").textContent = doc
     ? `Edit document — ${doc.original_filename}`
@@ -586,7 +676,9 @@ function openDocDialog(node, doc) {
   $("doc-file-wrap").style.display = doc ? "none" : "";
   $("doc-file").value = "";
 
-  $("doc-type").value = doc ? doc.doc_type : "procedure";
+  // Pre-select doc type: existing doc's type when editing, the badge's type
+  // when uploading from a drawer, otherwise the first concrete enum value.
+  $("doc-type").value = doc ? doc.doc_type : (prefillType || "procedure");
   $("doc-version").value = doc ? (doc.version || "") : "";
   $("doc-owner").value = doc ? (doc.owner || "") : "";
   $("doc-review-frequency").value = doc ? (doc.review_frequency || "") : "";

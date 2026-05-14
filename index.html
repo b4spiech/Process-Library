@@ -208,6 +208,21 @@
     </form>
   </dialog>
 
+  <!-- Per-type documents drawer (slides in from the right when a doc-type badge is clicked) -->
+  <dialog id="docs-drawer" class="docs-drawer">
+    <div class="drawer-header">
+      <div class="drawer-titles">
+        <span id="drawer-node-name" class="drawer-node-name"></span>
+        <span id="drawer-doc-type" class="drawer-doc-type"></span>
+      </div>
+      <div class="drawer-actions">
+        <button type="button" id="drawer-upload-btn" class="btn-primary">+ Upload</button>
+        <button type="button" id="drawer-close-btn" class="btn-secondary">Close</button>
+      </div>
+    </div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </dialog>
+
   <div id="toast" class="toast"></div>
 
   <script src="app.js"></script>
