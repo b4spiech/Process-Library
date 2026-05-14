@@ -1077,10 +1077,12 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
 .theme-section.collapsed .theme-chevron { transform: rotate(-90deg); }
 .theme-section-header .theme-count { margin-left: auto; color: var(--muted); font-weight: 400; font-size: 12px; }
 
-.theme-section.theme-environment             .theme-section-header { background: var(--theme-env-bg);    color: var(--theme-env-fg); }
-.theme-section.theme-labor_human_rights      .theme-section-header { background: var(--theme-labor-bg);  color: var(--theme-labor-fg); }
-.theme-section.theme-ethics                  .theme-section-header { background: var(--theme-ethics-bg); color: var(--theme-ethics-fg); }
-.theme-section.theme-sustainable_procurement .theme-section-header { background: var(--theme-proc-bg);   color: var(--theme-proc-fg); }
+/* Theme header colors come from per-row inline CSS variables set in JS,
+   so user-added themes pick up the user's chosen color automatically. */
+.theme-section .theme-section-header {
+  background: var(--theme-bg, var(--row-hover));
+  color:      var(--theme-fg, var(--text));
+}
 
 .theme-section-body {
   padding: 12px;
@@ -1161,10 +1163,13 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
   font-weight: 500;
   border: 1px solid transparent;
 }
-.topic-pill.theme-environment             { background: var(--theme-env-bg);    color: var(--theme-env-fg);    border-color: var(--theme-env-border); }
-.topic-pill.theme-labor_human_rights      { background: var(--theme-labor-bg);  color: var(--theme-labor-fg);  border-color: var(--theme-labor-border); }
-.topic-pill.theme-ethics                  { background: var(--theme-ethics-bg); color: var(--theme-ethics-fg); border-color: var(--theme-ethics-border); }
-.topic-pill.theme-sustainable_procurement { background: var(--theme-proc-bg);   color: var(--theme-proc-fg);   border-color: var(--theme-proc-border); }
+/* Pill colors come from per-pill inline CSS variables (set in JS from
+   theme.color), so user-added themes work automatically. */
+.topic-pill {
+  background:    var(--theme-bg, var(--row-hover));
+  color:         var(--theme-fg, var(--muted));
+  border-color:  var(--theme-border, var(--border-strong));
+}
 
 /* Modal tabs (used by both doc-dialog and topic-dialog) */
 .modal-tabs {
@@ -1237,6 +1242,141 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
 .topic-row .topic-action.is-link { background: var(--accent); color: #fff; border-color: var(--accent); }
 .topic-row .topic-action.is-link:hover { background: var(--accent-hover); }
 .topic-row .topic-action.is-unlink:hover { background: #fbeeec; color: var(--danger); border-color: #f1c7c2; }
+
+
+/* ============================================================
+   Theme manager (top of the Sustainability overlay)
+   ============================================================ */
+
+.theme-mgr {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+}
+.theme-mgr-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.theme-mgr-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.theme-mgr-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+@media (max-width: 900px) { .theme-mgr-list { grid-template-columns: 1fr; } }
+
+.theme-mgr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fafbfd;
+}
+.theme-mgr-row .theme-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
+}
+.theme-mgr-row .theme-mgr-name { font-weight: 600; flex: 1; min-width: 0; }
+.theme-mgr-row .theme-mgr-meta { font-size: 11px; color: var(--muted); }
+.theme-mgr-row .theme-mgr-actions { display: flex; gap: 4px; }
+.theme-mgr-row .theme-mgr-actions button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.theme-mgr-row .theme-mgr-actions button:hover { background: var(--row-hover); color: var(--text); }
+.theme-mgr-row .theme-mgr-actions button.danger:hover { background: #fbeeec; color: var(--danger); }
+.theme-mgr-row.is-builtin .theme-mgr-name::after {
+  content: " · builtin";
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Theme color picker — small palette of preset swatches alongside the
+   native <input type="color"> */
+.theme-color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  align-self: end;
+}
+.theme-color-swatches .swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+.theme-color-swatches .swatch.active { border-color: var(--text); }
+
+/* Per-criterion edit / delete actions on each card */
+.topic-card-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.topic-card-actions button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.topic-card-actions button:hover { background: var(--row-hover); color: var(--text); }
+.topic-card-actions button.danger:hover { background: #fbeeec; color: var(--danger); }
+
+.add-criterion-row {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+.add-criterion-row button {
+  background: #fff;
+  border: 1px dashed var(--border-strong);
+  border-radius: 5px;
+  padding: 6px 14px;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+}
+.add-criterion-row button:hover { border-color: var(--accent); background: var(--row-selected); }
+
+.activated-toggle-wrap {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  font-size: 13px !important;
+  color: var(--text) !important;
+  font-weight: 500 !important;
+}
 
 .doc-row {
   display: grid;

@@ -57,13 +57,6 @@ class KpiDirection(str, enum.Enum):
     lower_is_better = "lower_is_better"
 
 
-class SustainabilityTheme(str, enum.Enum):
-    environment = "environment"
-    labor_human_rights = "labor_human_rights"
-    ethics = "ethics"
-    sustainable_procurement = "sustainable_procurement"
-
-
 class SustainabilityStatus(str, enum.Enum):
     active = "active"
     under_review = "under_review"
@@ -287,19 +280,55 @@ class KpiEntry(Base):
     kpi = relationship("Kpi", back_populates="entries")
 
 
-class SustainabilityTopic(Base):
-    """A single EcoVadis criterion (e.g. "Energy & GHG Emissions").
+class SustainabilityTheme(Base):
+    """An EcoVadis theme (Environment, Ethics, …) or a user-defined one.
 
-    Seed data is loaded by migration 0005. The PUT API only mutates
-    `owner`, `status`, `is_activated`, and `notes` — the rest is
-    reference data.
+    Refactored from a Postgres ENUM into a proper table in migration 0006
+    so themes are CRUD-able from the UI. The original four EcoVadis
+    themes are seeded with `is_builtin=true`; user-added themes default
+    to `false`. `slug` is a stable identifier used by the original
+    seeded topics; new themes get an auto-generated slug.
     """
+
+    __tablename__ = "sustainability_themes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    slug = Column(String(64), nullable=False, unique=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    color = Column(String(32), nullable=True)  # CSS hex (e.g. "#15803d")
+    is_builtin = Column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    topics = relationship(
+        "SustainabilityTopic",
+        back_populates="theme",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class SustainabilityTopic(Base):
+    """A sustainability criterion under a theme (e.g. "Energy & GHG Emissions")."""
 
     __tablename__ = "sustainability_topics"
 
     id = Column(Integer, primary_key=True, index=True)
-    theme = Column(
-        Enum(SustainabilityTheme, name="sustainability_theme"), nullable=False
+    theme_id = Column(
+        Integer,
+        ForeignKey("sustainability_themes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     name = Column(String(255), nullable=False, unique=True)
     description = Column(Text, nullable=True)
@@ -328,6 +357,7 @@ class SustainabilityTopic(Base):
         nullable=False,
     )
 
+    theme = relationship("SustainabilityTheme", back_populates="topics")
     node_links = relationship(
         "NodeSustainabilityTopic",
         back_populates="topic",

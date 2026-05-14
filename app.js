@@ -1811,30 +1811,24 @@ $("link-search").addEventListener("input", () => {
 $("link-type-filter").addEventListener("change", () => refreshLinkDialogBody());
 
 
-// ---------- Sustainability: overlay, topic pills, topic-link modal ----------
+// ---------- Sustainability: themes, criteria, overlay, link modal ----------
 
-const SUSTAINABILITY_THEMES = [
-  { key: "environment",             label: "Environment" },
-  { key: "labor_human_rights",      label: "Labor & Human Rights" },
-  { key: "ethics",                  label: "Ethics" },
-  { key: "sustainable_procurement", label: "Sustainable Procurement" },
+const PRESET_THEME_COLORS = [
+  "#15803d", "#1d4ed8", "#7e22ce", "#c2410c",
+  "#b91c1c", "#0e7490", "#a16207", "#4b5563",
 ];
 
-// Short labels used inside the tile pills so the names don't overflow.
+// Short labels for tile pills so they don't overflow. Falls back to name.
 const TOPIC_SHORT_LABEL = {
   "Energy & GHG Emissions": "Energy/GHG",
-  "Water": "Water",
-  "Biodiversity": "Biodiversity",
   "Pollution & Waste": "Pollution",
   "Hazardous Materials": "Hazardous",
   "Product Use Impact": "Use Impact",
   "Product End-of-Life": "End-of-Life",
   "Health & Safety": "H&S",
   "Working Conditions": "Working Cond.",
-  "Social Dialogue": "Social Dialogue",
   "Diversity & Inclusion": "D&I",
   "Training & Development": "Training",
-  "Human Rights": "Human Rights",
   "Anti-Corruption & Bribery": "Anti-Corruption",
   "Anti-Competitive Practices": "Anti-Competitive",
   "Responsible Information Management": "Info Mgmt",
@@ -1845,8 +1839,22 @@ const TOPIC_SHORT_LABEL = {
   "Supplier Assessment & Monitoring": "Sup. Audit",
 };
 
-async function ensureAllTopicsLoaded() {
-  if (state.allTopics) return state.allTopics;
+// Cache of all themes (Array<SustainabilityThemeRead>).
+state.allThemes = null;
+
+async function ensureAllThemesLoaded(force = false) {
+  if (!force && state.allThemes) return state.allThemes;
+  try {
+    state.allThemes = await api("/sustainability/themes");
+  } catch (err) {
+    toast(`Failed to load themes: ${err.message}`, true);
+    state.allThemes = [];
+  }
+  return state.allThemes;
+}
+
+async function ensureAllTopicsLoaded(force = false) {
+  if (!force && state.allTopics) return state.allTopics;
   try {
     state.allTopics = await api("/sustainability/topics");
   } catch (err) {
@@ -1878,6 +1886,24 @@ function rerenderTileTopicPills(nodeId) {
   if (fresh) tile.appendChild(fresh);
 }
 
+// Given a hex color (e.g. #15803d) return [bg, fg, border] inline-style
+// values suitable for assignment to the corresponding CSS vars.
+function themeColorTriple(hex) {
+  const c = (hex || "").trim() || "#6b7384";
+  return {
+    bg: c + "22",      // ~13% alpha background
+    fg: c,             // full-strength text
+    border: c + "66",  // ~40% border
+  };
+}
+
+function applyThemeColors(el, color) {
+  const { bg, fg, border } = themeColorTriple(color);
+  el.style.setProperty("--theme-bg", bg);
+  el.style.setProperty("--theme-fg", fg);
+  el.style.setProperty("--theme-border", border);
+}
+
 function renderTopicPills(node) {
   const topics = state.topicsByNode.get(node.id);
   if (!topics || topics.length === 0) return null;
@@ -1885,7 +1911,8 @@ function renderTopicPills(node) {
   wrap.className = "tile-topic-pills";
   topics.forEach((t) => {
     const pill = document.createElement("span");
-    pill.className = `topic-pill theme-${t.theme}`;
+    pill.className = "topic-pill";
+    applyThemeColors(pill, t.theme && t.theme.color);
     pill.textContent = TOPIC_SHORT_LABEL[t.name] || t.name;
     pill.title = `${t.name} — click "🌱 Topic" on the tile to manage`;
     wrap.appendChild(pill);
@@ -1899,7 +1926,6 @@ function setSustainabilityOpen(open) {
   $("sustainability-view").hidden = !open;
   $("sustainability-toggle-btn").innerHTML = open ? "✕ Sustainability" : "🌱 Sustainability";
   if (open) {
-    // Make sure the docs library overlay isn't also open.
     if (state.viewMode === "library") setViewMode("tiles");
     renderSustainabilityPanel();
   }
@@ -1920,16 +1946,30 @@ document.addEventListener("keydown", (e) => {
 async function renderSustainabilityPanel() {
   const body = $("sustainability-body");
   body.innerHTML = '<div class="drawer-empty">Loading…</div>';
-  const topics = await ensureAllTopicsLoaded();
-  // Force a refresh each open so counts stay current.
-  state.allTopics = null;
-  const fresh = await ensureAllTopicsLoaded();
+  // Force fresh data each open so counts stay current.
+  const [themes, topics] = await Promise.all([
+    ensureAllThemesLoaded(true),
+    ensureAllTopicsLoaded(true),
+  ]);
+
+  renderThemeManager(themes);
+
   body.innerHTML = "";
 
-  SUSTAINABILITY_THEMES.forEach(({ key, label }) => {
-    const inTheme = (fresh || []).filter((t) => t.theme === key);
+  const summary = $("sustainability-summary");
+  summary.textContent = `${themes.length} themes · ${topics.length} criteria`;
+
+  if (themes.length === 0) {
+    body.innerHTML = '<div class="drawer-empty">No themes yet. Use “+ Add Theme” to create one.</div>';
+    return;
+  }
+
+  themes.forEach((theme) => {
+    const inTheme = topics.filter((t) => t.theme_id === theme.id);
     const section = document.createElement("section");
-    section.className = `theme-section theme-${key}`;
+    // Start fully collapsed — user clicks a header to expand a theme.
+    section.className = "theme-section collapsed";
+    applyThemeColors(section, theme.color);
 
     const header = document.createElement("div");
     header.className = "theme-section-header";
@@ -1937,7 +1977,7 @@ async function renderSustainabilityPanel() {
     chev.className = "theme-chevron";
     chev.textContent = "▾";
     const title = document.createElement("span");
-    title.textContent = label;
+    title.textContent = theme.name;
     const count = document.createElement("span");
     count.className = "theme-count";
     count.textContent = `${inTheme.length} criteria`;
@@ -1948,8 +1988,55 @@ async function renderSustainabilityPanel() {
     bodyEl.className = "theme-section-body";
     inTheme.forEach((t) => bodyEl.appendChild(renderTopicCard(t)));
 
+    // "+ Add Criterion" at the bottom of every theme section
+    const addRow = document.createElement("div");
+    addRow.className = "add-criterion-row";
+    const addBtn = document.createElement("button");
+    addBtn.textContent = `+ Add Criterion to ${theme.name}`;
+    addBtn.onclick = (e) => {
+      e.stopPropagation();
+      openCriterionDialog(null, theme.id);
+    };
+    addRow.appendChild(addBtn);
+    bodyEl.appendChild(addRow);
+
     section.append(header, bodyEl);
     body.appendChild(section);
+  });
+}
+
+function renderThemeManager(themes) {
+  const list = $("theme-mgr-list");
+  list.innerHTML = "";
+  themes.forEach((theme) => {
+    const row = document.createElement("div");
+    row.className = "theme-mgr-row" + (theme.is_builtin ? " is-builtin" : "");
+
+    const sw = document.createElement("span");
+    sw.className = "theme-swatch";
+    sw.style.background = theme.color || "#cbd5e1";
+    const name = document.createElement("span");
+    name.className = "theme-mgr-name";
+    name.textContent = theme.name;
+    const meta = document.createElement("span");
+    meta.className = "theme-mgr-meta";
+    meta.textContent = `${theme.topics_count || 0} criteria`;
+
+    const actions = document.createElement("span");
+    actions.className = "theme-mgr-actions";
+
+    const editBtn = document.createElement("button");
+    editBtn.textContent = "Edit";
+    editBtn.onclick = () => openThemeDialog(theme);
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "danger";
+    delBtn.textContent = "Delete";
+    delBtn.onclick = () => deleteTheme(theme);
+
+    actions.append(editBtn, delBtn);
+    row.append(sw, name, meta, actions);
+    list.appendChild(row);
   });
 }
 
@@ -1969,6 +2056,18 @@ function renderTopicCard(topic) {
   statusChip.textContent = (topic.status || "active").replace("_", " ");
   top.appendChild(statusChip);
 
+  const cardActions = document.createElement("span");
+  cardActions.className = "topic-card-actions";
+  const editBtn = document.createElement("button");
+  editBtn.textContent = "Edit";
+  editBtn.onclick = (e) => { e.stopPropagation(); openCriterionDialog(topic, topic.theme_id); };
+  const delBtn = document.createElement("button");
+  delBtn.className = "danger";
+  delBtn.textContent = "Delete";
+  delBtn.onclick = (e) => { e.stopPropagation(); deleteCriterion(topic); };
+  cardActions.append(editBtn, delBtn);
+  top.appendChild(cardActions);
+
   card.appendChild(top);
 
   if (topic.description) {
@@ -1987,33 +2086,22 @@ function renderTopicCard(topic) {
   const meta = document.createElement("div");
   meta.className = "topic-card-meta";
 
-  // Owner — inline-editable via prompt for now.
   const ownerSpan = document.createElement("span");
   ownerSpan.innerHTML = topic.owner
     ? `Owner: <strong>${escapeHtml(topic.owner)}</strong>`
     : `<em>No owner</em>`;
-  const setOwnerBtn = document.createElement("button");
-  setOwnerBtn.className = "tile-btn";
-  setOwnerBtn.style.padding = "2px 6px";
-  setOwnerBtn.textContent = topic.owner ? "Change" : "Set owner";
-  setOwnerBtn.onclick = async () => {
-    const v = prompt("Owner:", topic.owner || "");
-    if (v === null) return;
-    await updateTopic(topic.id, { owner: v });
-  };
-  meta.append(ownerSpan, setOwnerBtn);
+  meta.appendChild(ownerSpan);
 
-  // Linked-nodes count
   const linkedCount = document.createElement("span");
   linkedCount.innerHTML = `Linked to <strong>${topic.linked_nodes_count || 0}</strong> nodes`;
   meta.appendChild(linkedCount);
 
-  // Activation toggle
+  // Activation toggle (PATCH-style PUT)
   const toggleLabel = document.createElement("label");
   toggleLabel.className = "activated-toggle";
   toggleLabel.innerHTML = `<input type="checkbox" ${topic.is_activated ? "checked" : ""}/> Activated`;
   toggleLabel.querySelector("input").onchange = async (e) => {
-    await updateTopic(topic.id, { is_activated: e.target.checked });
+    await quickUpdateTopic(topic.id, { is_activated: e.target.checked });
   };
   meta.appendChild(toggleLabel);
 
@@ -2021,13 +2109,12 @@ function renderTopicCard(topic) {
   return card;
 }
 
-async function updateTopic(topicId, fields) {
+async function quickUpdateTopic(topicId, fields) {
   try {
     await api(`/sustainability/topics/${topicId}`, {
       method: "PUT",
       body: JSON.stringify(fields),
     });
-    // Invalidate caches and re-render
     state.allTopics = null;
     state.topicsByNode.clear();
     renderSustainabilityPanel();
@@ -2038,17 +2125,204 @@ async function updateTopic(topicId, fields) {
   }
 }
 
-// ---- Per-tile Topic Link modal (4 theme tabs) ----
+// ---- Theme add/edit dialog ----
 
-let topicDialogCtx = { node: null, theme: "environment" };
+let themeDialogCtx = { theme: null };
+
+function openThemeDialog(theme) {
+  themeDialogCtx = { theme };
+  $("theme-dialog-title").textContent = theme ? `Edit Theme — ${theme.name}` : "Add Theme";
+  $("theme-name").value = theme ? (theme.name || "") : "";
+  $("theme-description").value = theme ? (theme.description || "") : "";
+  $("theme-color").value = (theme && theme.color) || "#1d4ed8";
+
+  // Build preset color swatches
+  const sw = $("theme-color-swatches");
+  sw.innerHTML = "";
+  PRESET_THEME_COLORS.forEach((c) => {
+    const dot = document.createElement("span");
+    dot.className = "swatch" + ($("theme-color").value.toLowerCase() === c ? " active" : "");
+    dot.style.background = c;
+    dot.onclick = () => {
+      $("theme-color").value = c;
+      sw.querySelectorAll(".swatch").forEach((s) => s.classList.toggle("active", s === dot));
+    };
+    sw.appendChild(dot);
+  });
+
+  $("theme-dialog").showModal();
+  setTimeout(() => $("theme-name").focus(), 50);
+}
+
+$("theme-add-btn").addEventListener("click", () => openThemeDialog(null));
+$("theme-dialog-cancel").addEventListener("click", () => $("theme-dialog").close());
+
+$("theme-dialog-save").addEventListener("click", async () => {
+  const { theme } = themeDialogCtx;
+  const payload = {
+    name: $("theme-name").value.trim(),
+    description: $("theme-description").value || null,
+    color: $("theme-color").value || null,
+  };
+  if (!payload.name) { toast("Name is required", true); return; }
+  try {
+    if (theme) {
+      await api(`/sustainability/themes/${theme.id}`, { method: "PUT", body: JSON.stringify(payload) });
+      toast("Theme updated");
+    } else {
+      await api("/sustainability/themes", { method: "POST", body: JSON.stringify(payload) });
+      toast("Theme created");
+    }
+    $("theme-dialog").close();
+    state.allThemes = null;
+    state.allTopics = null;
+    state.topicsByNode.clear();
+    renderSustainabilityPanel();
+    renderRightPane();
+  } catch (err) {
+    toast(`Save failed: ${err.message}`, true);
+  }
+});
+
+async function deleteTheme(theme) {
+  const count = theme.topics_count || 0;
+  const msg = count > 0
+    ? `Delete theme "${theme.name}" AND its ${count} criterion${count === 1 ? "" : "a"} (and unlink them from every node)? This cannot be undone.`
+    : `Delete theme "${theme.name}"?`;
+  if (!confirm(msg)) return;
+  try {
+    await api(`/sustainability/themes/${theme.id}`, { method: "DELETE" });
+    state.allThemes = null;
+    state.allTopics = null;
+    state.topicsByNode.clear();
+    renderSustainabilityPanel();
+    renderRightPane();
+    toast("Theme deleted");
+  } catch (err) {
+    toast(`Delete failed: ${err.message}`, true);
+  }
+}
+
+// ---- Criterion add/edit dialog ----
+
+let criterionDialogCtx = { topic: null, themeId: null };
+
+async function openCriterionDialog(topic, defaultThemeId) {
+  criterionDialogCtx = { topic, themeId: defaultThemeId };
+  $("criterion-dialog-title").textContent = topic
+    ? `Edit Criterion — ${topic.name}`
+    : "Add Criterion";
+
+  // Populate theme dropdown from current themes
+  const themes = await ensureAllThemesLoaded();
+  const sel = $("crit-theme");
+  sel.innerHTML = "";
+  themes.forEach((th) => {
+    const o = document.createElement("option");
+    o.value = th.id;
+    o.textContent = th.name;
+    sel.appendChild(o);
+  });
+  sel.value = (topic && topic.theme_id) || defaultThemeId || (themes[0] && themes[0].id) || "";
+
+  $("crit-name").value = topic ? (topic.name || "") : "";
+  $("crit-ecovadis").value = topic ? (topic.ecovadis_criterion || "") : "";
+  $("crit-description").value = topic ? (topic.description || "") : "";
+  $("crit-why").value = topic ? (topic.why_it_matters || "") : "";
+  $("crit-evidence").value = topic ? (topic.evidence_examples || "") : "";
+  $("crit-weight").value = topic && topic.weight != null ? topic.weight : 1;
+  $("crit-owner").value = topic ? (topic.owner || "") : "";
+  $("crit-status").value = topic ? (topic.status || "active") : "active";
+  $("crit-activated").checked = topic ? !!topic.is_activated : true;
+
+  $("criterion-dialog").showModal();
+  setTimeout(() => $("crit-name").focus(), 50);
+}
+
+$("criterion-dialog-cancel").addEventListener("click", () => $("criterion-dialog").close());
+
+$("criterion-dialog-save").addEventListener("click", async () => {
+  const { topic } = criterionDialogCtx;
+  const name = $("crit-name").value.trim();
+  const themeId = parseInt($("crit-theme").value, 10);
+  if (!name) { toast("Name is required", true); return; }
+  if (!themeId) { toast("Theme is required", true); return; }
+  const payload = {
+    theme_id: themeId,
+    name,
+    ecovadis_criterion: $("crit-ecovadis").value || null,
+    description: $("crit-description").value || null,
+    why_it_matters: $("crit-why").value || null,
+    evidence_examples: $("crit-evidence").value || null,
+    weight: $("crit-weight").value !== "" ? parseFloat($("crit-weight").value) : 1.0,
+    owner: $("crit-owner").value || null,
+    status: $("crit-status").value,
+    is_activated: $("crit-activated").checked,
+  };
+  try {
+    if (topic) {
+      await api(`/sustainability/topics/${topic.id}`, { method: "PUT", body: JSON.stringify(payload) });
+      toast("Criterion updated");
+    } else {
+      await api("/sustainability/topics", { method: "POST", body: JSON.stringify(payload) });
+      toast("Criterion created");
+    }
+    $("criterion-dialog").close();
+    state.allTopics = null;
+    state.topicsByNode.clear();
+    state.allThemes = null;
+    renderSustainabilityPanel();
+    renderRightPane();
+  } catch (err) {
+    toast(`Save failed: ${err.message}`, true);
+  }
+});
+
+async function deleteCriterion(topic) {
+  const count = topic.linked_nodes_count || 0;
+  const msg = count > 0
+    ? `Delete criterion "${topic.name}" and unlink it from ${count} node${count === 1 ? "" : "s"}? This cannot be undone.`
+    : `Delete criterion "${topic.name}"?`;
+  if (!confirm(msg)) return;
+  try {
+    await api(`/sustainability/topics/${topic.id}`, { method: "DELETE" });
+    state.allTopics = null;
+    state.allThemes = null;
+    state.topicsByNode.clear();
+    renderSustainabilityPanel();
+    renderRightPane();
+    toast("Criterion deleted");
+  } catch (err) {
+    toast(`Delete failed: ${err.message}`, true);
+  }
+}
+
+// ---- Per-tile Topic Link modal (dynamic theme tabs) ----
+
+let topicDialogCtx = { node: null, themeId: null };
 
 async function openTopicDialog(node) {
-  topicDialogCtx = { node, theme: "environment" };
+  const themes = await ensureAllThemesLoaded();
+  topicDialogCtx = { node, themeId: themes.length > 0 ? themes[0].id : null };
   $("topic-dialog-title").textContent = `Link Sustainability Topic to ${node.code} — ${node.name}`;
-  // Reset tab UI to Environment
-  document.querySelectorAll("#topic-dialog .modal-tab").forEach((b) => {
-    b.classList.toggle("active", b.dataset.theme === "environment");
+
+  // Rebuild theme tab bar from current themes
+  const tabs = $("topic-theme-tabs");
+  tabs.innerHTML = "";
+  themes.forEach((th, i) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "modal-tab" + (i === 0 ? " active" : "");
+    btn.dataset.themeId = String(th.id);
+    btn.textContent = th.name;
+    btn.onclick = () => {
+      topicDialogCtx.themeId = th.id;
+      tabs.querySelectorAll(".modal-tab").forEach((b) => b.classList.toggle("active", b === btn));
+      renderTopicDialogBody();
+    };
+    tabs.appendChild(btn);
   });
+
   await ensureAllTopicsLoaded();
   await ensureTopicsLoaded(node.id);
   renderTopicDialogBody();
@@ -2056,16 +2330,20 @@ async function openTopicDialog(node) {
 }
 
 function renderTopicDialogBody() {
-  const { node, theme } = topicDialogCtx;
+  const { node, themeId } = topicDialogCtx;
   const body = $("topic-dialog-body");
   body.innerHTML = "";
-  const topics = (state.allTopics || []).filter((t) => t.theme === theme);
+  if (themeId == null) {
+    body.innerHTML = '<div class="drawer-empty">No themes defined. Open the Sustainability panel to add one.</div>';
+    return;
+  }
+  const topics = (state.allTopics || []).filter((t) => t.theme_id === themeId);
   const linked = new Set((state.topicsByNode.get(node.id) || []).map((t) => t.id));
 
   if (topics.length === 0) {
     const empty = document.createElement("div");
     empty.className = "drawer-empty";
-    empty.textContent = "No topics in this theme.";
+    empty.textContent = "No criteria in this theme yet.";
     body.appendChild(empty);
     return;
   }
@@ -2111,16 +2389,6 @@ function renderTopicDialogBody() {
     body.appendChild(row);
   });
 }
-
-document.querySelectorAll("#topic-dialog .modal-tab").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    topicDialogCtx.theme = btn.dataset.theme;
-    document.querySelectorAll("#topic-dialog .modal-tab").forEach((b) => {
-      b.classList.toggle("active", b === btn);
-    });
-    renderTopicDialogBody();
-  });
-});
 
 $("topic-dialog-close").addEventListener("click", () => $("topic-dialog").close());
 

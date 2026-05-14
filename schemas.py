@@ -7,7 +7,6 @@ from models import (
     DocType,
     ReportingFrequency,
     KpiDirection,
-    SustainabilityTheme,
     SustainabilityStatus,
 )
 
@@ -207,11 +206,38 @@ class KpiRead(KpiBase):
     latest_entry: Optional[KpiEntryRead] = None
 
 
-# ---------- Sustainability topics ----------
+# ---------- Sustainability themes & topics ----------
+
+
+class SustainabilityThemeBase(BaseModel):
+    name: str = Field(..., max_length=255)
+    description: Optional[str] = None
+    color: Optional[str] = Field(None, max_length=32)
+
+
+class SustainabilityThemeCreate(SustainabilityThemeBase):
+    pass
+
+
+class SustainabilityThemeUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=255)
+    description: Optional[str] = None
+    color: Optional[str] = Field(None, max_length=32)
+
+
+class SustainabilityThemeRead(SustainabilityThemeBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    slug: str
+    is_builtin: bool
+    created_at: datetime
+    updated_at: datetime
+    topics_count: int = 0
 
 
 class SustainabilityTopicBase(BaseModel):
-    theme: SustainabilityTheme
+    theme_id: int
     name: str = Field(..., max_length=255)
     description: Optional[str] = None
     ecovadis_criterion: Optional[str] = None
@@ -224,11 +250,22 @@ class SustainabilityTopicBase(BaseModel):
     notes: Optional[str] = None
 
 
+class SustainabilityTopicCreate(SustainabilityTopicBase):
+    pass
+
+
 class SustainabilityTopicUpdate(BaseModel):
-    # Only these four fields are user-mutable per spec.
+    # All fields editable now that themes/criteria are user-managed.
+    theme_id: Optional[int] = None
+    name: Optional[str] = Field(None, max_length=255)
+    description: Optional[str] = None
+    ecovadis_criterion: Optional[str] = None
+    why_it_matters: Optional[str] = None
+    evidence_examples: Optional[str] = None
+    weight: Optional[float] = None
+    is_activated: Optional[bool] = None
     owner: Optional[str] = None
     status: Optional[SustainabilityStatus] = None
-    is_activated: Optional[bool] = None
     notes: Optional[str] = None
 
 
@@ -238,5 +275,7 @@ class SustainabilityTopicRead(SustainabilityTopicBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    # Nested theme so the UI can paint pills with theme.color directly.
+    theme: Optional[SustainabilityThemeRead] = None
     # Computed by list/get endpoints so the UI can show per-topic node counts.
     linked_nodes_count: int = 0
