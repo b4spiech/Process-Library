@@ -7,6 +7,7 @@ from sqlalchemy import (
     Text,
     Date,
     Enum,
+    Float,
     ForeignKey,
     CheckConstraint,
     Index,
@@ -40,6 +41,19 @@ class DocType(str, enum.Enum):
     ci_event = "ci_event"
     audit_report = "audit_report"
     training_record = "training_record"
+
+
+class ReportingFrequency(str, enum.Enum):
+    daily = "daily"
+    weekly = "weekly"
+    monthly = "monthly"
+    quarterly = "quarterly"
+    annually = "annually"
+
+
+class KpiDirection(str, enum.Enum):
+    higher_is_better = "higher_is_better"
+    lower_is_better = "lower_is_better"
 
 
 class Node(Base):
@@ -132,3 +146,81 @@ class Document(Base):
     )
 
     node = relationship("Node", backref="documents")
+
+
+class Kpi(Base):
+    __tablename__ = "kpis"
+
+    id = Column(Integer, primary_key=True, index=True)
+    node_id = Column(
+        Integer,
+        ForeignKey("nodes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    calculation_method = Column(Text, nullable=True)
+    unit = Column(String(64), nullable=True)
+    target_value = Column(Float, nullable=True)
+    warning_threshold = Column(Float, nullable=True)
+    direction = Column(
+        Enum(KpiDirection, name="kpi_direction"),
+        nullable=False,
+        default=KpiDirection.higher_is_better,
+        server_default=KpiDirection.higher_is_better.value,
+    )
+
+    owner = Column(String(255), nullable=False)
+    reporting_frequency = Column(
+        Enum(ReportingFrequency, name="reporting_frequency"), nullable=True
+    )
+    data_source = Column(Text, nullable=True)
+    # Reuses the existing node_status enum (active / under_review / deprecated).
+    status = Column(
+        Enum(NodeStatus, name="node_status"),
+        nullable=False,
+        default=NodeStatus.active,
+        server_default=NodeStatus.active.value,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    node = relationship("Node", backref="kpis")
+    entries = relationship(
+        "KpiEntry",
+        back_populates="kpi",
+        cascade="all, delete-orphan",
+        order_by="desc(KpiEntry.entered_at)",
+    )
+
+
+class KpiEntry(Base):
+    __tablename__ = "kpi_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kpi_id = Column(
+        Integer,
+        ForeignKey("kpis.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    period = Column(String(64), nullable=False)
+    actual_value = Column(Float, nullable=False)
+    notes = Column(Text, nullable=True)
+    entered_by = Column(String(255), nullable=True)
+    entered_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    kpi = relationship("Kpi", back_populates="entries")

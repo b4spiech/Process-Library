@@ -16,6 +16,8 @@ const state = {
   treeSelectedId: null,
   treeCollapsed: new Set(),     // collapsed nodes in left tree
   docsByNode: new Map(),        // node_id -> Document[]  (also serves as doc-count cache)
+  kpisByNode: new Map(),        // node_id -> Kpi[]       (each Kpi includes latest_entry)
+  entriesByKpi: new Map(),      // kpi_id  -> KpiEntry[]  (for the Enter Data history table)
 };
 
 const LEVEL_NAMES = {
@@ -284,6 +286,7 @@ function renderRootMode(container) {
   state.tree.forEach((n) => {
     grid.appendChild(renderTile(n, { variant: "grid" }));
     ensureDocsLoaded(n.id);
+    ensureKpisLoaded(n.id);
   });
   container.appendChild(grid);
 }
@@ -304,6 +307,7 @@ function renderBranchMode(container) {
   headerRow.appendChild(renderTile(node, { variant: "header" }));
   view.appendChild(headerRow);
   ensureDocsLoaded(node.id);
+  ensureKpisLoaded(node.id);
 
   const children = node.children || [];
   if (children.length === 0) {
@@ -320,6 +324,7 @@ function renderBranchMode(container) {
     children.forEach((c) => {
       grid.appendChild(renderTile(c, { variant: "grid" }));
       ensureDocsLoaded(c.id);
+      ensureKpisLoaded(c.id);
     });
     view.appendChild(grid);
   }
@@ -380,6 +385,16 @@ function renderTile(node, { variant }) {
     actions.appendChild(expandBtn);
   }
 
+  const kpiBtn = document.createElement("button");
+  kpiBtn.className = "tile-btn";
+  kpiBtn.title = "View / manage KPIs for this node";
+  kpiBtn.innerHTML = `<span class="icon">📊</span> KPI`;
+  kpiBtn.onclick = (e) => {
+    e.stopPropagation();
+    openKpiDrawer(node);
+  };
+  actions.appendChild(kpiBtn);
+
   const detailsBtn = document.createElement("button");
   detailsBtn.className = "tile-btn";
   detailsBtn.innerHTML = `<span class="icon">i</span> Details`;
@@ -421,16 +436,19 @@ function renderTile(node, { variant }) {
     wrap.appendChild(kpi);
   }
 
-  // Doc-type badges row pinned to the bottom of the tile (via margin-top:auto
-  // in CSS). Hidden when the node has no documents.
+  // Doc-type badges row (hidden when the node has no documents).
   const badges = renderDocBadges(node);
   if (badges) wrap.appendChild(badges);
 
-  // Clicking the tile body (but not buttons or badges) drills into the branch
-  // — except for the header tile, which is already focused.
+  // KPI summary indicators (active KPIs only). Hidden when no active KPIs.
+  const kpiSummary = renderKpiSummary(node);
+  if (kpiSummary) wrap.appendChild(kpiSummary);
+
+  // Clicking the tile body (but not buttons, badges, or KPI indicators)
+  // drills into the branch — except for the header tile, already focused.
   if (variant !== "header") {
     wrap.onclick = (e) => {
-      if (e.target.closest("button, .doc-badge")) return;
+      if (e.target.closest("button, .doc-badge, .kpi-indicator")) return;
       navigate(node.id);
     };
   }
@@ -494,6 +512,9 @@ function renderDocBadges(node) {
 let drawerCtx = { nodeId: null, bucket: null };
 
 function openDocsDrawer(node, bucket) {
+  // Mutual exclusion: only one side drawer at a time.
+  if ($("kpi-drawer").open) closeKpiDrawer();
+
   drawerCtx = { nodeId: node.id, bucket };
   renderDrawerHeader(node, bucket);
   renderDrawerBody();
@@ -983,6 +1004,438 @@ $("add-confirm").addEventListener("click", async () => {
 });
 
 $("add-root-btn").addEventListener("click", () => openAddDialog(null));
+
+// ---------- KPIs: drawer, definition form, data entry, tile summary ----------
+
+const FREQ_LABELS = {
+  daily: "Daily",
+  weekly: "Weekly",
+  monthly: "Monthly",
+  quarterly: "Quarterly",
+  annually: "Annually",
+};
+
+function statusForKpi(kpi) {
+  // Returns one of: "good", "warn", "bad", "no-data".
+  const latest = kpi.latest_entry;
+  if (!latest) return "no-data";
+  const actual = latest.actual_value;
+  const target = kpi.target_value;
+  const warn = kpi.warning_threshold;
+  if (actual == null || target == null) return "no-data";
+
+  if (kpi.direction === "higher_is_better") {
+    if (actual >= target) return "good";
+    if (warn != null && actual >= warn) return "warn";
+    return "bad";
+  }
+  // lower_is_better
+  if (actual <= target) return "good";
+  if (warn != null && actual <= warn) return "warn";
+  return "bad";
+}
+
+function directionArrow(direction) {
+  return direction === "lower_is_better" ? "↓" : "↑";
+}
+
+function formatKpiValue(v, unit) {
+  if (v == null) return "—";
+  const s = Number.isFinite(v) ? String(+v) : String(v);
+  return unit ? `${s} ${unit}` : s;
+}
+
+async function ensureKpisLoaded(nodeId) {
+  if (state.kpisByNode.has(nodeId)) return;
+  try {
+    const kpis = await api(`/nodes/${nodeId}/kpis`);
+    state.kpisByNode.set(nodeId, kpis);
+    rerenderTileKpiSummary(nodeId);
+    if (kpiDrawerCtx.nodeId === nodeId) renderKpiDrawerBody();
+  } catch (err) {
+    toast(`Failed to load KPIs: ${err.message}`, true);
+  }
+}
+
+function rerenderTileKpiSummary(nodeId) {
+  const tile = document.querySelector(`.tile[data-id="${nodeId}"]`);
+  if (!tile) return;
+  const old = tile.querySelector(".tile-kpi-summary");
+  if (old) old.remove();
+  const node = state.byId.get(nodeId);
+  if (!node) return;
+  const fresh = renderKpiSummary(node);
+  if (fresh) tile.appendChild(fresh);
+}
+
+function renderKpiSummary(node) {
+  const kpis = state.kpisByNode.get(node.id);
+  if (!kpis) return null;
+  const active = kpis.filter((k) => k.status === "active");
+  if (active.length === 0) return null;
+
+  const wrap = document.createElement("div");
+  wrap.className = "tile-kpi-summary";
+
+  active.forEach((k) => {
+    const row = document.createElement("div");
+    row.className = "kpi-indicator";
+    row.title = "Click to enter data / view history";
+    row.onclick = (e) => {
+      e.stopPropagation();
+      openKpiEntryDialog(k);
+    };
+
+    const dot = document.createElement("span");
+    dot.className = `kpi-dot ${statusForKpi(k)}`;
+    const name = document.createElement("span");
+    name.className = "kpi-name";
+    name.textContent = k.name;
+    const vals = document.createElement("span");
+    vals.className = "kpi-vals";
+    const cur = k.latest_entry ? k.latest_entry.actual_value : null;
+    vals.textContent = `${cur == null ? "—" : cur} / ${k.target_value == null ? "—" : k.target_value}${k.unit ? " " + k.unit : ""}`;
+
+    row.append(dot, name, vals);
+    wrap.appendChild(row);
+  });
+
+  return wrap;
+}
+
+// ---- KPI drawer ----
+
+let kpiDrawerCtx = { nodeId: null };
+
+function openKpiDrawer(node) {
+  // Mutual exclusion: only one side drawer at a time.
+  if ($("docs-drawer").open) closeDocsDrawer();
+
+  kpiDrawerCtx = { nodeId: node.id };
+  $("kpi-drawer-node-name").textContent = `${node.code} — ${node.name}`;
+  renderKpiDrawerBody();
+
+  const dlg = $("kpi-drawer");
+  if (!dlg.open) dlg.show();
+
+  ensureKpisLoaded(node.id);
+}
+
+function closeKpiDrawer() {
+  kpiDrawerCtx = { nodeId: null };
+  $("kpi-drawer").close();
+}
+
+function renderKpiDrawerBody() {
+  if (kpiDrawerCtx.nodeId === null) return;
+  const node = state.byId.get(kpiDrawerCtx.nodeId);
+  const kpis = state.kpisByNode.get(kpiDrawerCtx.nodeId);
+  const body = $("kpi-drawer-body");
+  body.innerHTML = "";
+
+  $("kpi-drawer-count").textContent = kpis
+    ? `${kpis.length} KPI${kpis.length === 1 ? "" : "s"}`
+    : "loading…";
+
+  if (!kpis) {
+    const loading = document.createElement("div");
+    loading.className = "drawer-empty";
+    loading.textContent = "Loading…";
+    body.appendChild(loading);
+    return;
+  }
+  if (kpis.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "drawer-empty";
+    empty.textContent = "No KPIs defined for this node yet. Use “+ Add KPI” to create one.";
+    body.appendChild(empty);
+    return;
+  }
+
+  kpis.forEach((k) => body.appendChild(renderKpiRow(node, k)));
+}
+
+function renderKpiRow(node, kpi) {
+  const row = document.createElement("div");
+  row.className = "kpi-row";
+
+  const top = document.createElement("div");
+  top.className = "kpi-row-top";
+
+  const name = document.createElement("span");
+  name.className = "kpi-row-name";
+  name.textContent = kpi.name;
+
+  const statusChip = document.createElement("span");
+  statusChip.className = `kpi-status-chip ${kpi.status}`;
+  statusChip.textContent = (kpi.status || "active").replace("_", " ");
+
+  const actions = document.createElement("div");
+  actions.className = "kpi-row-actions";
+
+  const editBtn = document.createElement("button");
+  editBtn.textContent = "Edit";
+  editBtn.onclick = (e) => { e.stopPropagation(); openKpiDialog(node, kpi); };
+
+  const enterBtn = document.createElement("button");
+  enterBtn.textContent = "Enter Data";
+  enterBtn.className = "primary";
+  enterBtn.onclick = (e) => { e.stopPropagation(); openKpiEntryDialog(kpi); };
+
+  const delBtn = document.createElement("button");
+  delBtn.textContent = "Delete";
+  delBtn.className = "danger";
+  delBtn.onclick = (e) => { e.stopPropagation(); deleteKpi(kpi); };
+
+  actions.append(editBtn, enterBtn, delBtn);
+  top.append(name, statusChip, actions);
+
+  const meta = document.createElement("div");
+  meta.className = "kpi-row-meta";
+  const parts = [];
+  if (kpi.target_value != null) {
+    parts.push(`Target: <strong>${formatKpiValue(kpi.target_value, kpi.unit)}</strong> <span class="kpi-direction-arrow">${directionArrow(kpi.direction)}</span>`);
+  }
+  if (kpi.unit) parts.push(`Unit: <strong>${kpi.unit}</strong>`);
+  if (kpi.owner) parts.push(`Owner: <strong>${escapeHtml(kpi.owner)}</strong>`);
+  if (kpi.reporting_frequency) parts.push(`Freq: <strong>${FREQ_LABELS[kpi.reporting_frequency]}</strong>`);
+  if (kpi.data_source) parts.push(`Source: <strong>${escapeHtml(kpi.data_source)}</strong>`);
+  if (kpi.latest_entry) {
+    parts.push(`Latest: <strong>${formatKpiValue(kpi.latest_entry.actual_value, kpi.unit)}</strong> (${escapeHtml(kpi.latest_entry.period)})`);
+  }
+  meta.innerHTML = parts.join(" · ");
+  row.append(top, meta);
+
+  return row;
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+$("kpi-drawer-close-btn").addEventListener("click", () => closeKpiDrawer());
+$("kpi-drawer-add-btn").addEventListener("click", () => {
+  if (kpiDrawerCtx.nodeId === null) return;
+  openKpiDialog(state.byId.get(kpiDrawerCtx.nodeId), null);
+});
+
+// ESC closes whichever drawer is open. (Extends the existing docs-drawer handler.)
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if ($("kpi-drawer").open) {
+    e.preventDefault();
+    closeKpiDrawer();
+  }
+});
+
+// ---- KPI definition dialog (Create / Edit) ----
+
+let kpiFormCtx = { node: null, kpi: null };
+
+function openKpiDialog(node, kpi) {
+  kpiFormCtx = { node, kpi };
+  $("kpi-dialog-title").textContent = kpi
+    ? `Edit KPI — ${kpi.name}`
+    : `Add KPI to ${node.code} — ${node.name}`;
+
+  $("kpi-name").value = kpi ? (kpi.name || "") : "";
+  $("kpi-description").value = kpi ? (kpi.description || "") : "";
+  $("kpi-calculation-method").value = kpi ? (kpi.calculation_method || "") : "";
+  $("kpi-unit").value = kpi ? (kpi.unit || "") : "";
+  $("kpi-target-value").value = kpi && kpi.target_value != null ? kpi.target_value : "";
+  $("kpi-warning-threshold").value = kpi && kpi.warning_threshold != null ? kpi.warning_threshold : "";
+  $("kpi-direction").value = kpi ? (kpi.direction || "higher_is_better") : "higher_is_better";
+  $("kpi-owner").value = kpi ? (kpi.owner || "") : "";
+  $("kpi-reporting-frequency").value = kpi ? (kpi.reporting_frequency || "") : "";
+  $("kpi-data-source").value = kpi ? (kpi.data_source || "") : "";
+  $("kpi-status").value = kpi ? (kpi.status || "active") : "active";
+
+  $("kpi-dialog").showModal();
+  setTimeout(() => $("kpi-name").focus(), 50);
+}
+
+$("kpi-dialog-cancel").addEventListener("click", () => $("kpi-dialog").close());
+
+$("kpi-dialog-save").addEventListener("click", async () => {
+  const { node, kpi } = kpiFormCtx;
+  const name = $("kpi-name").value.trim();
+  const owner = $("kpi-owner").value.trim();
+  if (!name || !owner) {
+    toast("Name and Owner are required", true);
+    return;
+  }
+  const payload = {
+    name,
+    description: $("kpi-description").value || null,
+    calculation_method: $("kpi-calculation-method").value || null,
+    unit: $("kpi-unit").value || null,
+    target_value: $("kpi-target-value").value !== "" ? parseFloat($("kpi-target-value").value) : null,
+    warning_threshold: $("kpi-warning-threshold").value !== "" ? parseFloat($("kpi-warning-threshold").value) : null,
+    direction: $("kpi-direction").value,
+    owner,
+    reporting_frequency: $("kpi-reporting-frequency").value || null,
+    data_source: $("kpi-data-source").value || null,
+    status: $("kpi-status").value,
+  };
+  try {
+    if (kpi) {
+      await api(`/kpis/${kpi.id}`, { method: "PUT", body: JSON.stringify(payload) });
+      toast("KPI updated");
+    } else {
+      await api(`/nodes/${node.id}/kpis`, { method: "POST", body: JSON.stringify(payload) });
+      toast("KPI created");
+    }
+    $("kpi-dialog").close();
+    state.kpisByNode.delete(node.id);
+    await ensureKpisLoaded(node.id);
+    rerenderTileKpiSummary(node.id);
+  } catch (err) {
+    toast(`Save failed: ${err.message}`, true);
+  }
+});
+
+async function deleteKpi(kpi) {
+  if (!confirm(`Delete KPI "${kpi.name}" and all its entries? This cannot be undone.`)) return;
+  try {
+    await api(`/kpis/${kpi.id}`, { method: "DELETE" });
+    state.kpisByNode.delete(kpi.node_id);
+    state.entriesByKpi.delete(kpi.id);
+    await ensureKpisLoaded(kpi.node_id);
+    rerenderTileKpiSummary(kpi.node_id);
+    toast("KPI deleted");
+  } catch (err) {
+    toast(`Delete failed: ${err.message}`, true);
+  }
+}
+
+// ---- Enter Data dialog ----
+
+let kpiEntryCtx = { kpi: null };
+
+async function openKpiEntryDialog(kpi) {
+  kpiEntryCtx = { kpi };
+  $("kpi-entry-title").textContent = "Enter Data";
+  $("kpi-entry-name").textContent = kpi.name;
+  $("kpi-entry-target").textContent = kpi.target_value != null
+    ? `${formatKpiValue(kpi.target_value, kpi.unit)} ${directionArrow(kpi.direction)}`
+    : "—";
+
+  $("kpi-entry-period").value = "";
+  $("kpi-entry-actual").value = "";
+  $("kpi-entry-entered-by").value = "";
+  $("kpi-entry-notes").value = "";
+
+  $("kpi-entry-dialog").showModal();
+  await loadKpiEntries(kpi.id);
+  renderKpiHistory(kpi);
+}
+
+async function loadKpiEntries(kpiId) {
+  try {
+    const entries = await api(`/kpis/${kpiId}/entries`);
+    state.entriesByKpi.set(kpiId, entries);
+  } catch (err) {
+    toast(`Failed to load entries: ${err.message}`, true);
+  }
+}
+
+function renderKpiHistory(kpi) {
+  const tbody = $("kpi-history-body");
+  tbody.innerHTML = "";
+  const entries = (state.entriesByKpi.get(kpi.id) || []).slice(0, 10);
+  if (entries.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="7" class="muted" style="text-align:center;padding:12px;">No entries yet.</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  entries.forEach((entry) => {
+    const tr = document.createElement("tr");
+
+    const target = kpi.target_value;
+    let deltaClass = "neutral";
+    let deltaText = "—";
+    if (target != null) {
+      const diff = entry.actual_value - target;
+      const isGood =
+        kpi.direction === "higher_is_better" ? entry.actual_value >= target : entry.actual_value <= target;
+      deltaClass = isGood ? "good" : "bad";
+      const sign = diff > 0 ? "+" : "";
+      deltaText = `${sign}${diff.toFixed(2)}`;
+    }
+
+    const date = entry.entered_at ? new Date(entry.entered_at).toLocaleDateString() : "";
+
+    tr.innerHTML = `
+      <td>${escapeHtml(entry.period)}</td>
+      <td>${formatKpiValue(entry.actual_value, kpi.unit)}</td>
+      <td class="delta ${deltaClass}">${deltaText}</td>
+      <td>${escapeHtml(entry.notes || "")}</td>
+      <td>${escapeHtml(entry.entered_by || "")}</td>
+      <td>${date}</td>
+      <td></td>
+    `;
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "danger";
+    delBtn.textContent = "Delete";
+    delBtn.onclick = (e) => { e.stopPropagation(); deleteKpiEntry(entry, kpi); };
+    tr.lastElementChild.appendChild(delBtn);
+
+    tbody.appendChild(tr);
+  });
+}
+
+$("kpi-entry-cancel").addEventListener("click", () => $("kpi-entry-dialog").close());
+
+$("kpi-entry-save").addEventListener("click", async () => {
+  const kpi = kpiEntryCtx.kpi;
+  if (!kpi) return;
+  const period = $("kpi-entry-period").value.trim();
+  const actualRaw = $("kpi-entry-actual").value;
+  if (!period || actualRaw === "") {
+    toast("Period and Actual Value are required", true);
+    return;
+  }
+  const payload = {
+    period,
+    actual_value: parseFloat(actualRaw),
+    entered_by: $("kpi-entry-entered-by").value || null,
+    notes: $("kpi-entry-notes").value || null,
+  };
+  try {
+    await api(`/kpis/${kpi.id}/entries`, { method: "POST", body: JSON.stringify(payload) });
+    toast("Entry added");
+    $("kpi-entry-period").value = "";
+    $("kpi-entry-actual").value = "";
+    $("kpi-entry-notes").value = "";
+    // Refresh entries + KPIs (latest_entry may have changed).
+    await loadKpiEntries(kpi.id);
+    state.kpisByNode.delete(kpi.node_id);
+    await ensureKpisLoaded(kpi.node_id);
+    renderKpiHistory(kpi);
+    rerenderTileKpiSummary(kpi.node_id);
+  } catch (err) {
+    toast(`Save failed: ${err.message}`, true);
+  }
+});
+
+async function deleteKpiEntry(entry, kpi) {
+  if (!confirm(`Delete entry for "${entry.period}"?`)) return;
+  try {
+    await api(`/kpi-entries/${entry.id}`, { method: "DELETE" });
+    await loadKpiEntries(kpi.id);
+    state.kpisByNode.delete(kpi.node_id);
+    await ensureKpisLoaded(kpi.node_id);
+    renderKpiHistory(kpi);
+    rerenderTileKpiSummary(kpi.node_id);
+    toast("Entry deleted");
+  } catch (err) {
+    toast(`Delete failed: ${err.message}`, true);
+  }
+}
 
 // ---------- Toast ----------
 

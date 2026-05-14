@@ -208,6 +208,135 @@
     </form>
   </dialog>
 
+  <!-- KPI drawer (slides in from the right when the tile's KPI button is clicked) -->
+  <dialog id="kpi-drawer" class="docs-drawer">
+    <div class="drawer-header">
+      <div class="drawer-titles">
+        <span id="kpi-drawer-node-name" class="drawer-node-name"></span>
+        <span class="drawer-doc-type">
+          KPIs
+          <span id="kpi-drawer-count" class="drawer-count"></span>
+        </span>
+      </div>
+      <div class="drawer-actions">
+        <button type="button" id="kpi-drawer-add-btn" class="btn-primary">+ Add KPI</button>
+        <button type="button" id="kpi-drawer-close-btn" class="btn-secondary">Close</button>
+      </div>
+    </div>
+    <div id="kpi-drawer-body" class="drawer-body"></div>
+  </dialog>
+
+  <!-- KPI definition dialog (create / edit) -->
+  <dialog id="kpi-dialog" class="big-dialog">
+    <form id="kpi-form" method="dialog">
+      <h3 id="kpi-dialog-title">Add KPI</h3>
+      <div class="grid">
+        <label class="span-2">Name <span class="req-mark">*</span>
+          <input type="text" id="kpi-name" required maxlength="255" />
+        </label>
+        <label class="span-2">Description
+          <textarea id="kpi-description" rows="2"></textarea>
+        </label>
+        <label class="span-2">Calculation Method
+          <textarea id="kpi-calculation-method" rows="2" placeholder="Plain English or formula"></textarea>
+        </label>
+
+        <label>Unit
+          <input type="text" id="kpi-unit" placeholder="%, $, days, count, score…" />
+        </label>
+        <label>Direction
+          <select id="kpi-direction">
+            <option value="higher_is_better">Higher is Better</option>
+            <option value="lower_is_better">Lower is Better</option>
+          </select>
+        </label>
+
+        <label>Target Value
+          <input type="number" id="kpi-target-value" step="any" />
+        </label>
+        <label>Warning Threshold
+          <input type="number" id="kpi-warning-threshold" step="any" />
+        </label>
+
+        <label>Owner <span class="req-mark">*</span>
+          <input type="text" id="kpi-owner" required maxlength="255" />
+        </label>
+        <label>Reporting Frequency
+          <select id="kpi-reporting-frequency">
+            <option value="">— none —</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="annually">Annually</option>
+          </select>
+        </label>
+
+        <label class="span-2">Data Source
+          <input type="text" id="kpi-data-source" placeholder="ERP, manual entry, spreadsheet…" />
+        </label>
+
+        <label>Status
+          <select id="kpi-status">
+            <option value="active">Active</option>
+            <option value="under_review">Under Review</option>
+            <option value="deprecated">Deprecated</option>
+          </select>
+        </label>
+      </div>
+      <div class="form-footer">
+        <button type="button" id="kpi-dialog-cancel" class="btn-secondary">Cancel</button>
+        <button type="button" id="kpi-dialog-save" class="btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- KPI data-entry dialog -->
+  <dialog id="kpi-entry-dialog" class="big-dialog">
+    <form id="kpi-entry-form" method="dialog">
+      <h3 id="kpi-entry-title">Enter Data</h3>
+      <div class="kpi-entry-readonly">
+        <div><span class="muted">KPI:</span> <strong id="kpi-entry-name"></strong></div>
+        <div><span class="muted">Target:</span> <span id="kpi-entry-target"></span></div>
+      </div>
+      <div class="grid">
+        <label>Period <span class="req-mark">*</span>
+          <input type="text" id="kpi-entry-period" required placeholder="e.g. May 2026 or Q2 2026" />
+        </label>
+        <label>Actual Value <span class="req-mark">*</span>
+          <input type="number" id="kpi-entry-actual" required step="any" />
+        </label>
+        <label class="span-2">Entered By
+          <input type="text" id="kpi-entry-entered-by" />
+        </label>
+        <label class="span-2">Notes
+          <textarea id="kpi-entry-notes" rows="2"></textarea>
+        </label>
+      </div>
+      <div class="form-footer">
+        <button type="button" id="kpi-entry-cancel" class="btn-secondary">Close</button>
+        <button type="button" id="kpi-entry-save" class="btn-primary">Add Entry</button>
+      </div>
+      <div class="kpi-history">
+        <div class="kpi-history-title">Last 10 entries</div>
+        <table id="kpi-history-table" class="kpi-history-table">
+          <thead>
+            <tr>
+              <th>Period</th>
+              <th>Actual</th>
+              <th>vs Target</th>
+              <th>Notes</th>
+              <th>Entered By</th>
+              <th>Date</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="kpi-history-body"></tbody>
+        </table>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Per-type documents drawer (slides in from the right when a doc-type badge is clicked) -->
   <dialog id="docs-drawer" class="docs-drawer">
     <div class="drawer-header">

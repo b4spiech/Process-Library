@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from routers import documents, nodes
+from routers import documents, kpis, nodes
 
 app = FastAPI(
     title="Business Process Repository",
@@ -28,6 +28,7 @@ def health():
 
 app.include_router(nodes.router)
 app.include_router(documents.router)
+app.include_router(kpis.router)
 
 
 # Explicit static routes — only these three files are exposed to the browser,
