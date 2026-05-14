@@ -64,7 +64,7 @@ body {
 .layout {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(340px, 36%) 1fr;
+  grid-template-columns: 3fr 7fr;
   gap: 16px;
   padding: 16px;
   overflow: hidden;
@@ -283,9 +283,10 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
 
 
 /* ============================================================
-   Tile pane — replaces the old single-form detail pane.
-   Tiles render in an accordion-style drill-down with children
-   indented under their parent when expanded.
+   Tile pane — focused branch view.
+   ROOT MODE: all L1 tiles in a responsive grid.
+   BRANCH MODE: highlighted parent header + vertical stack of
+   full-width child tiles with an org-chart connector line.
    ============================================================ */
 
 .tile-pane {
@@ -298,32 +299,131 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
   overflow: hidden;
 }
 
+/* Pane header now hosts breadcrumb + back button instead of a static title */
+.tile-pane .pane-header {
+  gap: 12px;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  min-height: 28px;
+}
+.crumb {
+  cursor: pointer;
+  color: var(--accent);
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.crumb:hover { background: var(--row-selected); }
+.crumb.current {
+  cursor: default;
+  color: var(--text);
+  font-weight: 600;
+}
+.crumb.current:hover { background: transparent; }
+.crumb-sep { color: var(--muted); font-size: 12px; }
+
+.back-btn {
+  background: #fff;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 4px 9px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1;
+}
+.back-btn:hover { background: var(--row-hover); border-color: var(--accent); color: var(--accent); }
+.back-btn[disabled] { opacity: 0.35; cursor: not-allowed; }
+
 .tile-grid-root {
   flex: 1;
   overflow: auto;
   padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
-/* A group of sibling tiles at the same level */
+/* Root mode: L1 tiles in a responsive grid */
 .tile-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
 }
 
-/* When children are rendered under an expanded parent, indent the block */
-.tile-children {
-  margin-top: 12px;
-  margin-left: 24px;
-  padding-left: 12px;
-  border-left: 2px solid var(--border);
+/* Branch mode: vertical org-chart view */
+.branch-view {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header tile (focused parent) */
+.branch-header-tile {
+  border: 2px solid var(--accent);
+  background: linear-gradient(180deg, #f4f8ff 0%, #ffffff 100%);
+  box-shadow: 0 1px 2px rgba(15,22,36,0.05), 0 6px 16px rgba(37,99,235,0.08);
+}
+
+/* Container that holds the children and renders the connector line */
+.branch-children-list {
+  position: relative;
+  margin-top: 24px;
+  padding-left: 40px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
+.branch-children-list::before {
+  /* vertical trunk drops down from below the header */
+  content: "";
+  position: absolute;
+  left: 20px;
+  top: -24px;
+  bottom: 50%;
+  width: 2px;
+  background: var(--border-strong);
+}
+.branch-children-list.has-children::before {
+  bottom: 28px; /* extend trunk to last child's connector */
+}
+.branch-child {
+  position: relative;
+}
+.branch-child::before {
+  /* horizontal stub connecting child to the vertical trunk */
+  content: "";
+  position: absolute;
+  left: -20px;
+  top: 28px;
+  width: 20px;
+  height: 2px;
+  background: var(--border-strong);
+}
+
+.branch-empty {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+}
+
+/* Doc-count badge shown on tiles */
+.doc-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  background: #f3f5f9;
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+.doc-count strong { color: var(--text); font-weight: 600; }
 
 .tile {
   background: #fff;

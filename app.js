@@ -10,13 +10,12 @@ const API_BASE = (() => {
 const state = {
   tree: [],
   byId: new Map(),
-  // Left tree selection vs. tile selection are separate — left tree
-  // selection drives "highlight tile X". Tile expansion is per-tile.
+  // null = root mode (all L1 tiles in grid); otherwise = branch mode focused
+  // on this node id (shows header tile + its immediate children stacked).
+  currentNodeId: null,
   treeSelectedId: null,
-  tileSelectedId: null,
   treeCollapsed: new Set(),     // collapsed nodes in left tree
-  tileExpanded: new Set(),      // expanded tiles in right pane (also loads docs)
-  docsByNode: new Map(),        // node_id -> Document[]
+  docsByNode: new Map(),        // node_id -> Document[]  (also serves as doc-count cache)
 };
 
 const LEVEL_NAMES = {
@@ -93,10 +92,48 @@ async function loadTree() {
     (n.children || []).forEach(walk);
   };
   state.tree.forEach(walk);
+
+  // If the currently focused branch was deleted, fall back to root.
+  if (state.currentNodeId && !state.byId.has(state.currentNodeId)) {
+    state.currentNodeId = null;
+  }
+
   renderTree();
-  renderTiles();
-  const summary = `${state.byId.size} nodes · ${state.tree.length} L1 domain${state.tree.length === 1 ? "" : "s"}`;
-  $("tile-summary").textContent = summary;
+  renderRightPane();
+}
+
+// ---------- Navigation ----------
+
+function pathTo(nodeId) {
+  // Returns ancestors from root → ... → node (inclusive).
+  const out = [];
+  let n = state.byId.get(nodeId);
+  while (n) {
+    out.unshift(n);
+    n = n.parent_id ? state.byId.get(n.parent_id) : null;
+  }
+  return out;
+}
+
+function navigate(nodeId) {
+  state.currentNodeId = nodeId;
+  state.treeSelectedId = nodeId;
+  renderTree();
+  renderRightPane();
+}
+
+function navigateToRoot() {
+  state.currentNodeId = null;
+  renderTree();
+  renderRightPane();
+}
+
+function navigateUp() {
+  if (!state.currentNodeId) return;
+  const node = state.byId.get(state.currentNodeId);
+  if (!node) return navigateToRoot();
+  if (node.parent_id) navigate(node.parent_id);
+  else navigateToRoot();
 }
 
 function $(id) { return document.getElementById(id); }
@@ -176,32 +213,55 @@ function renderTreeNode(node) {
 }
 
 function selectTreeNode(id) {
-  state.treeSelectedId = id;
-  state.tileSelectedId = id;
-  expandAncestorTilesFor(id);
-  renderTree();
+  // Tree click navigates to that node's branch view.
+  navigate(id);
+}
+
+// ---------- Right pane: breadcrumb + mode-based tile rendering ----------
+
+function renderRightPane() {
+  renderBreadcrumb();
   renderTiles();
-  scrollTileIntoView(id);
+  updateSummary();
 }
 
-function expandAncestorTilesFor(id) {
-  const node = state.byId.get(id);
-  if (!node || !node.parent_id) return;
-  let parent = state.byId.get(node.parent_id);
-  while (parent) {
-    state.tileExpanded.add(parent.id);
-    parent = parent.parent_id ? state.byId.get(parent.parent_id) : null;
+function updateSummary() {
+  const total = state.byId.size;
+  const l1Count = state.tree.length;
+  $("tile-summary").textContent = `${total} nodes · ${l1Count} L1 domain${l1Count === 1 ? "" : "s"}`;
+}
+
+function renderBreadcrumb() {
+  const bc = $("breadcrumb");
+  bc.innerHTML = "";
+
+  const rootCrumb = document.createElement("span");
+  rootCrumb.className = "crumb" + (state.currentNodeId === null ? " current" : "");
+  rootCrumb.textContent = "Domains";
+  if (state.currentNodeId !== null) rootCrumb.onclick = () => navigateToRoot();
+  bc.appendChild(rootCrumb);
+
+  if (state.currentNodeId !== null) {
+    const path = pathTo(state.currentNodeId);
+    path.forEach((n, i) => {
+      const sep = document.createElement("span");
+      sep.className = "crumb-sep";
+      sep.textContent = "›";
+      bc.appendChild(sep);
+
+      const crumb = document.createElement("span");
+      const isLast = i === path.length - 1;
+      crumb.className = "crumb" + (isLast ? " current" : "");
+      crumb.textContent = n.name;
+      crumb.title = n.code;
+      if (!isLast) crumb.onclick = () => navigate(n.id);
+      bc.appendChild(crumb);
+    });
   }
-}
 
-function scrollTileIntoView(id) {
-  requestAnimationFrame(() => {
-    const el = document.querySelector(`.tile[data-id="${id}"]`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  });
+  // Back button enabled only when not at root
+  $("back-btn").disabled = state.currentNodeId === null;
 }
-
-// ---------- Right pane tile rendering ----------
 
 function renderTiles() {
   const root = $("tile-grid");
@@ -210,18 +270,75 @@ function renderTiles() {
     root.innerHTML = '<p class="muted">No nodes yet.</p>';
     return;
   }
-  const grid = document.createElement("div");
-  grid.className = "tile-grid";
-  state.tree.forEach((n) => grid.appendChild(renderTile(n)));
-  root.appendChild(grid);
+  if (state.currentNodeId === null) {
+    renderRootMode(root);
+  } else {
+    renderBranchMode(root);
+  }
 }
 
-function renderTile(node) {
+// Root mode: L1 tiles in a responsive grid.
+function renderRootMode(container) {
+  const grid = document.createElement("div");
+  grid.className = "tile-grid";
+  state.tree.forEach((n) => {
+    grid.appendChild(renderTile(n, { variant: "grid" }));
+    ensureDocsLoaded(n.id);
+  });
+  container.appendChild(grid);
+}
+
+// Branch mode: highlighted parent header on top, vertical stack of children below
+// with an org-chart connector line.
+function renderBranchMode(container) {
+  const node = state.byId.get(state.currentNodeId);
+  if (!node) {
+    container.innerHTML = '<p class="muted">Node not found.</p>';
+    return;
+  }
+  const view = document.createElement("div");
+  view.className = "branch-view";
+
+  // Header tile (parent in focus) — no Expand button (already focused).
+  view.appendChild(renderTile(node, { variant: "header" }));
+  ensureDocsLoaded(node.id);
+
+  const children = node.children || [];
+  const childList = document.createElement("div");
+  childList.className = "branch-children-list" + (children.length > 0 ? " has-children" : "");
+
+  if (children.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "branch-empty";
+    empty.textContent =
+      node.level >= 4
+        ? "Terminal process (L4) — no further breakdown."
+        : "No children yet. Use “+ Add child” in Details to add one.";
+    childList.appendChild(empty);
+  } else {
+    children.forEach((c) => {
+      const childWrap = document.createElement("div");
+      childWrap.className = "branch-child";
+      childWrap.appendChild(renderTile(c, { variant: "branch-child" }));
+      ensureDocsLoaded(c.id);
+      childList.appendChild(childWrap);
+    });
+  }
+
+  view.appendChild(childList);
+  container.appendChild(view);
+}
+
+// `variant` controls minor differences:
+//   "grid"          — root-mode L1 tile in a grid cell
+//   "header"        — focused parent header tile in branch mode (highlighted, no Expand)
+//   "branch-child"  — child tile in branch mode (full-width, has Expand to drill deeper)
+function renderTile(node, { variant }) {
   const wrap = document.createElement("div");
-  wrap.className = "tile";
-  if (node.id === state.tileSelectedId) wrap.classList.add("selected");
+  wrap.className = "tile" + (variant === "header" ? " branch-header-tile" : "");
   wrap.dataset.id = node.id;
 
+  // ---- Top row: status / code / L# / doc-count / actions ----
   const top = document.createElement("div");
   top.className = "tile-top";
 
@@ -237,21 +354,26 @@ function renderTile(node) {
   levelMeta.className = "tile-meta";
   levelMeta.textContent = `L${node.level}`;
 
+  const docCount = document.createElement("span");
+  docCount.className = "doc-count";
+  docCount.dataset.docCountFor = node.id;
+  const cached = state.docsByNode.get(node.id);
+  docCount.innerHTML = `<strong>${cached ? cached.length : "—"}</strong> docs`;
+
   const actions = document.createElement("div");
   actions.className = "tile-actions";
 
-  const isExpanded = state.tileExpanded.has(node.id);
-
-  const expandBtn = document.createElement("button");
-  expandBtn.className = "tile-btn" + (isExpanded ? " is-expanded" : "");
-  expandBtn.innerHTML = `<span class="icon">${isExpanded ? "▼" : "▶"}</span> ${isExpanded ? "Hide" : "Expand"}`;
-  expandBtn.onclick = (e) => {
-    e.stopPropagation();
-    if (isExpanded) state.tileExpanded.delete(node.id);
-    else state.tileExpanded.add(node.id);
-    renderTiles();
-    if (!isExpanded) ensureDocsLoaded(node.id);
-  };
+  if (variant !== "header") {
+    const expandBtn = document.createElement("button");
+    expandBtn.className = "tile-btn";
+    expandBtn.innerHTML = `<span class="icon">▶</span> Expand`;
+    expandBtn.title = "Drill into this branch";
+    expandBtn.onclick = (e) => {
+      e.stopPropagation();
+      navigate(node.id);
+    };
+    actions.appendChild(expandBtn);
+  }
 
   const detailsBtn = document.createElement("button");
   detailsBtn.className = "tile-btn";
@@ -260,15 +382,15 @@ function renderTile(node) {
     e.stopPropagation();
     openDetailsDialog(node);
   };
+  actions.appendChild(detailsBtn);
 
-  actions.append(expandBtn, detailsBtn);
-  top.append(dot, code, levelMeta, actions);
+  top.append(dot, code, levelMeta, docCount, actions);
+  wrap.appendChild(top);
 
   const name = document.createElement("div");
   name.className = "tile-name";
   name.textContent = node.name;
-
-  wrap.append(top, name);
+  wrap.appendChild(name);
 
   if (node.kpi_name) {
     const kpi = document.createElement("div");
@@ -286,29 +408,25 @@ function renderTile(node) {
     wrap.appendChild(kpi);
   }
 
-  wrap.onclick = (e) => {
-    if (e.target.closest("button")) return;
-    state.tileSelectedId = node.id;
-    state.treeSelectedId = node.id;
-    renderTree();
-    renderTiles();
-  };
+  // Documents section always rendered (root-mode tiles too, so users see docs
+  // before drilling in). The list is lazy-loaded.
+  wrap.appendChild(renderDocsSection(node));
 
-  if (isExpanded) {
-    wrap.appendChild(renderDocsSection(node));
-
-    if (node.children && node.children.length > 0) {
-      const childrenBlock = document.createElement("div");
-      childrenBlock.className = "tile-children";
-      const grid = document.createElement("div");
-      grid.className = "tile-grid";
-      node.children.forEach((c) => grid.appendChild(renderTile(c)));
-      childrenBlock.appendChild(grid);
-      wrap.appendChild(childrenBlock);
-    }
+  // Clicking the tile body (but not buttons) drills into this branch — except
+  // for the header tile, which is already focused.
+  if (variant !== "header") {
+    wrap.onclick = (e) => {
+      if (e.target.closest("button")) return;
+      navigate(node.id);
+    };
   }
 
   return wrap;
+}
+
+function updateDocCountFor(nodeId, count) {
+  const el = document.querySelector(`[data-doc-count-for="${nodeId}"]`);
+  if (el) el.innerHTML = `<strong>${count}</strong> docs`;
 }
 
 // ---------- Documents section per tile ----------
@@ -417,6 +535,7 @@ async function ensureDocsLoaded(nodeId) {
   try {
     const docs = await api(`/nodes/${nodeId}/documents`);
     state.docsByNode.set(nodeId, docs);
+    updateDocCountFor(nodeId, docs.length);
     const list = document.querySelector(`[data-docs-for-node="${nodeId}"]`);
     if (list) {
       list.innerHTML = "";
@@ -447,7 +566,7 @@ async function deleteDoc(doc) {
     await api(`/documents/${doc.id}`, { method: "DELETE" });
     state.docsByNode.delete(doc.node_id);
     await ensureDocsLoaded(doc.node_id);
-    renderTiles();
+    renderRightPane();
     toast("Document deleted");
   } catch (err) {
     toast(`Delete failed: ${err.message}`, true);
@@ -575,9 +694,8 @@ $("doc-confirm").addEventListener("click", async () => {
     }
     $("doc-dialog").close();
     state.docsByNode.delete(node.id);
-    state.tileExpanded.add(node.id);
     await ensureDocsLoaded(node.id);
-    renderTiles();
+    renderRightPane();
   } catch (err) {
     toast(`Save failed: ${err.message}`, true);
   }
@@ -657,8 +775,11 @@ $("delete-btn").addEventListener("click", async () => {
   try {
     await api(`/nodes/${node.id}`, { method: "DELETE" });
     $("details-dialog").close();
-    state.tileSelectedId = state.treeSelectedId = null;
-    state.tileExpanded.delete(node.id);
+    // If we deleted the focused node, jump up one level (or to root).
+    if (state.currentNodeId === node.id) {
+      state.currentNodeId = node.parent_id || null;
+    }
+    state.treeSelectedId = null;
     state.docsByNode.delete(node.id);
     toast("Deleted");
     await loadTree();
@@ -728,11 +849,11 @@ $("add-confirm").addEventListener("click", async () => {
     const created = await api("/nodes", { method: "POST", body: JSON.stringify(payload) });
     $("add-dialog").close();
     toast("Created");
-    if (parent) state.tileExpanded.add(parent.id);
+    // After adding, focus the parent's branch (so the new child is visible),
+    // or focus the new root domain itself if no parent.
+    state.currentNodeId = parent ? parent.id : created.id;
+    state.treeSelectedId = created.id;
     await loadTree();
-    state.tileSelectedId = state.treeSelectedId = created.id;
-    renderTree();
-    renderTiles();
   } catch (err) {
     toast(`Create failed: ${err.message}`, true);
   }
@@ -752,6 +873,8 @@ function toast(msg, isError = false) {
 }
 
 // ---------- Boot ----------
+
+$("back-btn").addEventListener("click", () => navigateUp());
 
 checkHealth();
 loadTree().catch((e) => toast(`Failed to load: ${e.message}`, true));
