@@ -1045,7 +1045,12 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
 .sustainability-view .sustainability-title { display: flex; flex-direction: column; gap: 2px; }
 .sustainability-body {
   flex: 1;
-  overflow: auto;
+  /* min-height: 0 is required to make `overflow: auto` actually scroll
+     when this element is a flex item inside a column flexbox — without
+     it the item auto-sizes to its content height and the overflow never
+     triggers. */
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 14px;
