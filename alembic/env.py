@@ -1,4 +1,3 @@
-import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -10,7 +9,9 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from database import Base  # noqa: E402
+# Importing DATABASE_URL from database.py reuses the postgres:// -> postgresql://
+# normalisation, so migrations and the running app always agree on the URL.
+from database import Base, DATABASE_URL  # noqa: E402
 import models  # noqa: E402,F401
 
 config = context.config
@@ -18,9 +19,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-db_url = os.getenv("DATABASE_URL")
-if db_url:
-    config.set_main_option("sqlalchemy.url", db_url)
+config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 target_metadata = Base.metadata
 

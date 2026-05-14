@@ -11,7 +11,7 @@ A web application for cataloguing, governing, and reviewing every business proce
 | Backend  | FastAPI · SQLAlchemy 2 · Alembic · Pydantic v2        |
 | Database | PostgreSQL 16 (adjacency list pattern)                |
 | Frontend | Single-page vanilla HTML / CSS / JS (no build step)   |
-| Runtime  | Docker Compose                                        |
+| Runtime  | Railway (Nixpacks builder)                            |
 
 ## Data Model
 
@@ -30,27 +30,23 @@ Governance fields on every node:
 `linked_procedure_url`, `kpi_name`, `kpi_target`, `kpi_current`,
 `camunda_process_key` (placeholder for future BPMN integration).
 
-## Quick start — Docker
+## Deployment — Railway
 
-```bash
-docker compose up --build
-```
+The repo is configured for Railway with Nixpacks. Required pieces are committed:
 
-Then open:
+- [`Procfile`](Procfile) — `web: alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT`
+- [`railway.json`](railway.json) — pins the builder to `NIXPACKS` and sets `/health` as the healthcheck path
+- [`requirements.txt`](requirements.txt) — pulled by Nixpacks to install Python deps
 
-- **UI**:           <http://localhost:8000/>
-- **OpenAPI docs**: <http://localhost:8000/docs>
-- **Health**:       <http://localhost:8000/health>
+To deploy:
 
-On first boot the container runs `alembic upgrade head` and `python seed.py`, populating the DB with the 6 default L1 domains (Operations, Finance, HR, IT, Sales, Customer Service) and their L2 functions.
+1. In Railway, create the service from this repo and set the **Deploy Branch** to `dev` (or whichever you publish).
+2. Add a **Postgres** plugin in the same project; Railway will inject `DATABASE_URL` as a service variable — reference it on the API service.
+3. Deploy. Migrations run automatically via the `Procfile` `release`-style chain.
 
-To wipe state:
+The seed script ([`seed.py`](seed.py)) is **not** run automatically on deploy — invoke it once via the Railway shell if you want the sample L1/L2 domains.
 
-```bash
-docker compose down -v
-```
-
-## Local development (without Docker)
+## Local development
 
 Requires Python 3.12+ and a running PostgreSQL.
 
@@ -60,7 +56,7 @@ pip install -r requirements.txt
 cp .env.example .env                # then edit DATABASE_URL if needed
 alembic upgrade head
 python seed.py                      # optional — seeds 6 L1 domains
-uvicorn main:app --reload
+uvicorn main:app --reload           # serves http://localhost:8000
 ```
 
 The frontend (`index.html`, `styles.css`, `app.js`) is served by the FastAPI app at `/`. To run it from a separate static server, pass an `?api=` query param to point at the API host.
@@ -101,8 +97,8 @@ Validation enforced by the backend:
 ├── index.html           Tree view + side detail panel
 ├── styles.css
 ├── app.js
-├── Dockerfile
-├── docker-compose.yml
+├── Procfile             Railway start command
+├── railway.json         Railway build config (Nixpacks)
 └── README.md
 ```
 
