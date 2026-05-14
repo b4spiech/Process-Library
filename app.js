@@ -495,6 +495,18 @@ let drawerCtx = { nodeId: null, bucket: null };
 
 function openDocsDrawer(node, bucket) {
   drawerCtx = { nodeId: node.id, bucket };
+  renderDrawerHeader(node, bucket);
+  renderDrawerBody();
+
+  // Non-modal show() so the rest of the page stays interactive — that lets
+  // the user click another doc-type badge to update the drawer in place.
+  // Calling showModal()/show() on an already-open dialog throws, so we
+  // guard on dlg.open and only call once.
+  const dlg = $("docs-drawer");
+  if (!dlg.open) dlg.show();
+}
+
+function renderDrawerHeader(node, bucket) {
   $("drawer-node-name").textContent = `${node.code} — ${node.name}`;
 
   const headerLabel = $("drawer-doc-type");
@@ -507,9 +519,6 @@ function openDocsDrawer(node, bucket) {
   countEl.className = "drawer-count";
   countEl.id = "drawer-count";
   headerLabel.append(chip, countEl);
-
-  renderDrawerBody();
-  $("docs-drawer").showModal();
 }
 
 function renderDrawerBody() {
@@ -543,6 +552,14 @@ function closeDocsDrawer() {
 }
 
 $("drawer-close-btn").addEventListener("click", () => closeDocsDrawer());
+
+// Non-modal dialogs don't get ESC-to-close for free; wire it manually.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("docs-drawer").open) {
+    e.preventDefault();
+    closeDocsDrawer();
+  }
+});
 
 $("drawer-upload-btn").addEventListener("click", () => {
   if (drawerCtx.nodeId === null) return;

@@ -506,7 +506,13 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
 .doc-badge.dt-training_record  { background: #f3e8ff; color: #7e22ce; }
 .doc-badge.dt-misc             { background: #ecedf1; color: #4b5563; }
 
-/* Right-side slide-in docs drawer */
+/* Right-side slide-in docs drawer.
+   Important: keep the layout properties on the [open] selector so that
+   when the dialog is closed it falls back to the browser default
+   `display: none` and disappears entirely. The drawer is non-modal so
+   the rest of the page (tiles, breadcrumb, tree) stays interactive
+   while it's visible — clicking another doc-type badge updates the
+   drawer in place. */
 .docs-drawer {
   position: fixed;
   top: 0;
@@ -522,12 +528,14 @@ dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--border
   border-radius: 0;
   padding: 0;
   box-shadow: -8px 0 24px rgba(15, 22, 36, 0.18);
-  display: flex;
   flex-direction: column;
   background: var(--surface);
+  z-index: 50;
 }
-.docs-drawer::backdrop { background: rgba(15, 22, 36, 0.35); }
-.docs-drawer[open] { animation: drawer-slide-in 0.18s ease-out; }
+.docs-drawer[open] {
+  display: flex;
+  animation: drawer-slide-in 0.18s ease-out;
+}
 @keyframes drawer-slide-in {
   from { transform: translateX(100%); }
   to   { transform: translateX(0); }
