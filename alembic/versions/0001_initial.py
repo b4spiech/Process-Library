@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision: str = "0001_initial"
@@ -17,11 +18,27 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-# Enum value lists — defined once and referenced by both CREATE TYPE
-# (via DO block below) and the column type definitions (with create_type=False
-# so SQLAlchemy never tries to issue its own CREATE TYPE).
-REVIEW_FREQUENCY_VALUES = ("monthly", "quarterly", "annually")
-NODE_STATUS_VALUES = ("active", "under_review", "deprecated")
+# Use postgresql.ENUM (the dialect impl) directly rather than sa.Enum.
+# Reason: SQLAlchemy 2.x does not reliably propagate `create_type=False` when
+# the generic sa.Enum is adapted to the PG dialect during op.create_table —
+# the adapted dialect impl gets the default create_type=True and emits its own
+# CREATE TYPE, conflicting with the explicit DO-block creation below. Defining
+# the types as postgresql.ENUM here means the create_type=False flag lives on
+# the actual object that receives the `before_create` event.
+review_frequency_enum = postgresql.ENUM(
+    "monthly",
+    "quarterly",
+    "annually",
+    name="review_frequency",
+    create_type=False,
+)
+node_status_enum = postgresql.ENUM(
+    "active",
+    "under_review",
+    "deprecated",
+    name="node_status",
+    create_type=False,
+)
 
 
 def upgrade() -> None:
@@ -59,24 +76,12 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("owner", sa.String(length=255), nullable=True),
-        sa.Column(
-            "review_frequency",
-            sa.Enum(
-                *REVIEW_FREQUENCY_VALUES,
-                name="review_frequency",
-                create_type=False,
-            ),
-            nullable=True,
-        ),
+        sa.Column("review_frequency", review_frequency_enum, nullable=True),
         sa.Column("last_review_date", sa.Date(), nullable=True),
         sa.Column("next_review_date", sa.Date(), nullable=True),
         sa.Column(
             "status",
-            sa.Enum(
-                *NODE_STATUS_VALUES,
-                name="node_status",
-                create_type=False,
-            ),
+            node_status_enum,
             nullable=False,
             server_default="active",
         ),
